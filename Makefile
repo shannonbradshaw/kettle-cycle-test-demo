@@ -55,3 +55,18 @@ test-cycle:
 	viam machine part run --part $(PART_ID) \
 		--method 'viam.service.generic.v1.GenericService.DoCommand' \
 		--data '{"name": "cycle-tester", "command": {"command": "execute_cycle"}}'
+
+trial-start:
+	viam machine part run --part $(PART_ID) \
+		--method 'viam.service.generic.v1.GenericService.DoCommand' \
+		--data '{"name": "cycle-tester", "command": {"command": "start"}}'
+
+trial-stop:
+	viam machine part run --part $(PART_ID) \
+		--method 'viam.service.generic.v1.GenericService.DoCommand' \
+		--data '{"name": "cycle-tester", "command": {"command": "stop"}}'
+
+trial-status:
+	viam machine part run --part $(PART_ID) \
+		--method 'viam.service.generic.v1.GenericService.DoCommand' \
+		--data '{"name": "cycle-tester", "command": {"command": "status"}}'

@@ -142,6 +142,138 @@ func TestConfigValidate(t *testing.T) {
 	})
 }
 
+func TestTrialLifecycle(t *testing.T) {
+	t.Run("start creates active trial with stop channel", func(t *testing.T) {
+		logger := logging.NewTestLogger(t)
+		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
+		deps, cfg := testDeps()
+
+		ctrl, _ := NewController(context.Background(), deps, name, cfg, logger)
+		kctrl := ctrl.(*kettleCycleTestController)
+
+		// Before start: no active trial
+		if kctrl.activeTrial != nil {
+			t.Error("expected nil activeTrial before start")
+		}
+
+		result, err := kctrl.DoCommand(context.Background(), map[string]interface{}{
+			"command": "start",
+		})
+		if err != nil {
+			t.Fatalf("start failed: %v", err)
+		}
+
+		// After start: active trial exists with initialized channels
+		if kctrl.activeTrial == nil {
+			t.Fatal("expected activeTrial after start")
+		}
+		if kctrl.activeTrial.stopCh == nil {
+			t.Error("expected stopCh to be initialized")
+		}
+		if kctrl.activeTrial.trialID == "" {
+			t.Error("expected trialID to be set")
+		}
+		if result["trial_id"] != kctrl.activeTrial.trialID {
+			t.Errorf("returned trial_id doesn't match activeTrial.trialID")
+		}
+
+		// Clean up
+		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "stop"})
+	})
+
+	t.Run("stop clears active trial", func(t *testing.T) {
+		logger := logging.NewTestLogger(t)
+		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
+		deps, cfg := testDeps()
+
+		ctrl, _ := NewController(context.Background(), deps, name, cfg, logger)
+		kctrl := ctrl.(*kettleCycleTestController)
+
+		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "start"})
+
+		result, err := kctrl.DoCommand(context.Background(), map[string]interface{}{
+			"command": "stop",
+		})
+		if err != nil {
+			t.Fatalf("stop failed: %v", err)
+		}
+
+		// After stop: no active trial
+		if kctrl.activeTrial != nil {
+			t.Error("expected nil activeTrial after stop")
+		}
+		if result["trial_id"] == "" {
+			t.Error("expected trial_id in stop result")
+		}
+	})
+
+	t.Run("start when already running returns error", func(t *testing.T) {
+		logger := logging.NewTestLogger(t)
+		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
+		deps, cfg := testDeps()
+
+		ctrl, _ := NewController(context.Background(), deps, name, cfg, logger)
+		kctrl := ctrl.(*kettleCycleTestController)
+
+		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "start"})
+
+		_, err := kctrl.DoCommand(context.Background(), map[string]interface{}{
+			"command": "start",
+		})
+		if err == nil {
+			t.Error("expected error when starting already-running trial")
+		}
+
+		// Clean up
+		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "stop"})
+	})
+
+	t.Run("stop when idle returns error", func(t *testing.T) {
+		logger := logging.NewTestLogger(t)
+		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
+		deps, cfg := testDeps()
+
+		ctrl, _ := NewController(context.Background(), deps, name, cfg, logger)
+		kctrl := ctrl.(*kettleCycleTestController)
+
+		_, err := kctrl.DoCommand(context.Background(), map[string]interface{}{
+			"command": "stop",
+		})
+		if err == nil {
+			t.Error("expected error when stopping with no active trial")
+		}
+	})
+
+	t.Run("status returns trial state", func(t *testing.T) {
+		logger := logging.NewTestLogger(t)
+		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
+		deps, cfg := testDeps()
+
+		ctrl, _ := NewController(context.Background(), deps, name, cfg, logger)
+		kctrl := ctrl.(*kettleCycleTestController)
+
+		// Idle state
+		status, _ := kctrl.DoCommand(context.Background(), map[string]interface{}{
+			"command": "status",
+		})
+		if status["state"] != "idle" {
+			t.Errorf("expected state=idle, got %v", status["state"])
+		}
+
+		// Running state
+		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "start"})
+		status, _ = kctrl.DoCommand(context.Background(), map[string]interface{}{
+			"command": "status",
+		})
+		if status["state"] != "running" {
+			t.Errorf("expected state=running, got %v", status["state"])
+		}
+
+		// Clean up
+		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "stop"})
+	})
+}
+
 func TestExecuteCycle(t *testing.T) {
 	t.Run("moves to pour_prep then back to resting", func(t *testing.T) {
 		logger := logging.NewTestLogger(t)

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Milestone 3: Cycle Records and CLI Control
+
+**Added**
+- Trial lifecycle management via DoCommand with `start`, `stop`, and `status` commands
+- Automatic background cycling when trial is running
+- `GetState()` method exposing controller state with `should_sync` field for conditional data capture
+- Cycle sensor component (`viamdemo:kettle-cycle-test:cycle-sensor`) for exposing controller state to Viam data capture
+- Makefile targets for trial control: `trial-start`, `trial-stop`, `trial-status`
+- Trial metadata tracking: trial ID, cycle count, timestamps
+- 1-second pause at pour_prep position during each cycle
+- 1-second pause at resting position during each cycle
+
+**Changed**
+- Controller now tracks active trial state and cycle counts
+- `execute_cycle` updates cycle counter when trial is active
+- Sensor component depends on controller service via explicit dependency chain
+
 ### Milestone 2: Arm Movement Between Saved Positions
 
 **Added**

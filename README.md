@@ -2,7 +2,7 @@
 
 A Viam robotics platform demo for appliance R&D labs, demonstrating cycle testing, failure detection, data capture, and alerting.
 
-> **Status:** Milestone 2 complete — arm moves between saved positions on command. See [product_spec.md](product_spec.md) for full roadmap.
+> **Status:** Milestone 3 complete — trial lifecycle with continuous cycling and data capture readiness. See [product_spec.md](product_spec.md) for full roadmap.
 
 ## What This Demo Does
 
@@ -18,15 +18,26 @@ Key Viam features demonstrated:
 
 ## Module Structure
 
-This project is a Viam module providing a `generic` service for orchestrating cycle tests.
+This project is a Viam module providing two resources:
 
+**Controller Service:**
 - **API:** `rdk:service:generic`
 - **Model:** `viamdemo:kettle-cycle-test:controller`
-- **Entry point:** `cmd/module/main.go`
-- **Implementation:** `module.go` (controller logic)
-- **Tests:** `module_test.go` (unit tests for validation, DoCommand, resource lifecycle)
+- **Implementation:** `module.go`
+- **Tests:** `module_test.go`
 
-The controller coordinates arm movements, pour cycles, sensor readings, image capture, and failure detection. Using a generic service rather than a component allows the module to orchestrate multiple hardware resources without implementing hardware-specific interfaces.
+The controller orchestrates arm movements, trial lifecycle, and cycle execution. Using a generic service allows it to coordinate multiple hardware resources without implementing hardware-specific interfaces.
+
+**Cycle Sensor Component:**
+- **API:** `rdk:component:sensor`
+- **Model:** `viamdemo:kettle-cycle-test:cycle-sensor`
+- **Implementation:** `sensor.go`
+- **Tests:** `sensor_test.go`
+
+The sensor exposes controller state (trial ID, cycle count, running status) for Viam data capture. Its `should_sync` field enables conditional data capture—only syncing data when a trial is active.
+
+**Entry Point:**
+- `cmd/module/main.go` - Registers both resources with the Viam module system
 
 ## Setup
 
@@ -46,7 +57,7 @@ Create a `machine.json` file in the project root with your Viam machine details:
 
 You can find these values in the Viam app under your machine's settings.
 
-### Adding the Service
+### Adding the Controller Service
 
 In the Viam app, add a generic service to your machine:
 - **Name:** `cycle-tester`
@@ -66,6 +77,22 @@ All three fields are required:
 - `arm` - Name of the arm component (explicit dependency)
 - `resting_position` - Position-saver switch for the resting pose
 - `pour_prep_position` - Position-saver switch for the pour-prep pose
+
+### Adding the Cycle Sensor
+
+Add a sensor component to expose controller state for data capture:
+- **Name:** `cycle-sensor`
+- **API:** `rdk:component:sensor`
+- **Model:** `viamdemo:kettle-cycle-test:cycle-sensor`
+
+**Configuration attributes:**
+```json
+{
+  "controller": "cycle-tester"
+}
+```
+
+The sensor depends on the controller service and exposes its state through the standard sensor `Readings()` interface.
 
 ## Milestone 1: Foundation
 
@@ -92,7 +119,7 @@ The module foundation is now in place:
 - **Resource lifecycle** - constructor, DoCommand interface, Close method
 - **Hot reload** - rapid iteration with `viam module reload-local`
 
-**Next:** Milestone 3 will add data capture with tag-based correlation for cycle records.
+**Next:** Milestone 4 will add load cell data capture via MCP3008 ADC.
 
 ## Milestone 2: Arm Movement
 
@@ -129,6 +156,104 @@ Or manually via Viam CLI:
 viam machine part run --part <part_id> \
   --method 'viam.service.generic.v1.GenericService.DoCommand' \
   --data '{"name": "cycle-tester", "command": {"command": "execute_cycle"}}'
+```
+
+## Milestone 3: Trial Lifecycle and Data Capture Readiness
+
+The controller now manages trial lifecycle with continuous cycling and exposes state for data capture.
+
+**What's Working:**
+- `start` DoCommand begins a trial and starts continuous background cycling
+- `stop` DoCommand ends the trial and returns cycle count
+- `status` DoCommand returns current trial state
+- Automatic cycle counting during active trials
+- `GetState()` method exposes trial metadata for the sensor component
+- `should_sync` field in state enables conditional data capture (true during trials, false when idle)
+- New cycle-sensor component provides Viam data capture integration
+- Makefile targets for trial management: `trial-start`, `trial-stop`, `trial-status`
+- Background cycling loop runs until stopped or module closes
+
+**Key Implementation Details:**
+- `/Users/apr/Developer/kettle-cycle-test-demo/module.go` - `trialState` struct, `cycleLoop` goroutine, `GetState()` method, trial management commands
+- `/Users/apr/Developer/kettle-cycle-test-demo/sensor.go` - Sensor component that wraps controller state, `stateProvider` interface for dependency injection
+- `/Users/apr/Developer/kettle-cycle-test-demo/cmd/module/main.go` - Dual resource registration (controller service + cycle sensor component)
+- `/Users/apr/Developer/kettle-cycle-test-demo/Makefile` - `trial-start`, `trial-stop`, `trial-status` targets
+
+**Viam Concepts Introduced:**
+- **Trial lifecycle** - DoCommand patterns for stateful operations (start/stop/status)
+- **Background routines** - Goroutines with cancellation for continuous operation
+- **State exposure** - Sensor component wraps service state for data capture
+- **Conditional sync** - `should_sync` field controls when data is captured to cloud
+- **Service dependencies** - Sensor depends on generic service, not just components
+- **Interface-based design** - `stateProvider` interface decouples sensor from controller implementation
+
+**Cycle Sequence:**
+Each cycle when a trial is running:
+1. Move to pour_prep position
+2. Pause 1 second
+3. Return to resting position
+4. Pause 1 second
+5. Increment cycle count
+6. Repeat until stopped
+
+**Managing Trials:**
+```bash
+# Start a trial (begins continuous cycling)
+make trial-start
+
+# Check trial status
+make trial-status
+
+# Stop the trial
+make trial-stop
+```
+
+Or manually via Viam CLI:
+```bash
+# Start
+viam machine part run --part <part_id> \
+  --method 'viam.service.generic.v1.GenericService.DoCommand' \
+  --data '{"name": "cycle-tester", "command": {"command": "start"}}'
+
+# Status
+viam machine part run --part <part_id> \
+  --method 'viam.service.generic.v1.GenericService.DoCommand' \
+  --data '{"name": "cycle-tester", "command": {"command": "status"}}'
+
+# Stop
+viam machine part run --part <part_id> \
+  --method 'viam.service.generic.v1.GenericService.DoCommand' \
+  --data '{"name": "cycle-tester", "command": {"command": "stop"}}'
+```
+
+**Sensor Readings:**
+Query the cycle-sensor to see trial state:
+```bash
+viam machine part run --part <part_id> \
+  --method 'viam.component.sensor.v1.SensorService.GetReadings' \
+  --data '{"name": "cycle-sensor"}'
+```
+
+Returns:
+```json
+{
+  "state": "running",
+  "trial_id": "trial-20260120-143052",
+  "cycle_count": 42,
+  "last_cycle_at": "2026-01-20T14:35:12Z",
+  "should_sync": true
+}
+```
+
+When idle:
+```json
+{
+  "state": "idle",
+  "trial_id": "",
+  "cycle_count": 0,
+  "last_cycle_at": "",
+  "should_sync": false
+}
 ```
 
 ## Development

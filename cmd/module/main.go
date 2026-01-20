@@ -2,12 +2,16 @@ package main
 
 import (
 	"kettlecycletest"
+
+	"go.viam.com/rdk/components/sensor"
 	"go.viam.com/rdk/module"
 	"go.viam.com/rdk/resource"
 	generic "go.viam.com/rdk/services/generic"
 )
 
 func main() {
-	// ModularMain can take multiple APIModel arguments, if your module implements multiple models.
-	module.ModularMain(resource.APIModel{ generic.API, kettlecycletest.Controller})
+	module.ModularMain(
+		resource.APIModel{generic.API, kettlecycletest.Controller},
+		resource.APIModel{sensor.API, kettlecycletest.CycleSensor},
+	)
 }

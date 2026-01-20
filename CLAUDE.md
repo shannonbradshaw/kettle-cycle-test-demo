@@ -15,7 +15,7 @@
 7. Publish module publicly
 
 ### Current Milestone
-Milestone 2 complete. Arm moves between saved positions via position-saver switches on command.
+Milestone 3 complete. Trial lifecycle management with continuous cycling and data capture readiness via cycle-sensor component.
 
 *(Keep this updated whenever a project phase or milestone advances.)*
 
@@ -29,7 +29,11 @@ Milestone 2 complete. Arm moves between saved positions via position-saver switc
 - Mock vision service allows alerting development before CV model is trained
 - Training mode tags images for dataset collection without acting on inference results
 - Position-saver switches (vmodutils) trigger arm movements; arm is explicit dependency for clarity in service dependency chain
-- `execute_cycle` moves: resting → pour_prep → pause (1s) → resting 
+- `execute_cycle` moves: resting → pour_prep → pause (1s) → resting → pause (1s)
+- Trial lifecycle: `start` begins continuous cycling in background goroutine, `stop` ends trial and returns count
+- Cycle-sensor component wraps controller state via `stateProvider` interface for Viam data capture
+- `should_sync` field enables conditional data capture (only sync when trial is active)
+- Service dependencies work like component dependencies; sensor declares controller as full resource name 
 
 ## Documentation
 
@@ -52,6 +56,7 @@ The README has a **target outline** (in product_spec.md) and a **backlog** (belo
 - Screenshots of Viam app configuration
 - Lesson 1 walkthrough content for Milestone 1
 - Lesson 2 walkthrough content for Milestone 2 (position-saver switches, arm as explicit dependency)
+- Lesson 3 walkthrough content for Milestone 3 (trial lifecycle, sensor wrapping service state, conditional data capture)
 
 
 ## Project Commands
@@ -79,6 +84,9 @@ The README has a **target outline** (in product_spec.md) and a **backlog** (belo
 - `make module.tar.gz` — build packaged module
 - `make reload-module` — hot-reload module to robot (uses PART_ID from machine.json)
 - `make test-cycle` — trigger execute_cycle DoCommand via CLI
+- `make trial-start` — start a trial (continuous cycling)
+- `make trial-stop` — stop the active trial
+- `make trial-status` — check trial status and cycle count
 
 ### Module Generation
 

@@ -3,6 +3,7 @@ package kettlecycletest
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"go.viam.com/rdk/components/arm"
@@ -26,6 +27,14 @@ type Config struct {
 	Arm              string `json:"arm"`
 	RestingPosition  string `json:"resting_position"`
 	PourPrepPosition string `json:"pour_prep_position"`
+}
+
+type trialState struct {
+	trialID     string
+	cycleCount  int
+	startedAt   time.Time
+	lastCycleAt time.Time
+	stopCh      chan struct{}
 }
 
 func (cfg *Config) Validate(path string) ([]string, []string, error) {
@@ -54,6 +63,9 @@ type kettleCycleTestController struct {
 
 	cancelCtx  context.Context
 	cancelFunc func()
+
+	mu          sync.Mutex
+	activeTrial *trialState
 }
 
 func newKettleCycleTestController(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (resource.Resource, error) {
@@ -110,6 +122,12 @@ func (s *kettleCycleTestController) DoCommand(ctx context.Context, cmd map[strin
 	switch command {
 	case "execute_cycle":
 		return s.handleExecuteCycle(ctx)
+	case "start":
+		return s.handleStart()
+	case "stop":
+		return s.handleStop()
+	case "status":
+		return s.handleStatus()
 	default:
 		return nil, fmt.Errorf("unknown command: %s", command)
 	}
@@ -130,7 +148,112 @@ func (s *kettleCycleTestController) handleExecuteCycle(ctx context.Context) (map
 		return nil, fmt.Errorf("returning to resting position: %w", err)
 	}
 
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(1 * time.Second):
+	}
+
+	// Update cycle count if trial is active
+	s.mu.Lock()
+	if s.activeTrial != nil {
+		s.activeTrial.cycleCount++
+		s.activeTrial.lastCycleAt = time.Now()
+	}
+	s.mu.Unlock()
+
 	return map[string]interface{}{"status": "completed"}, nil
+}
+
+func (s *kettleCycleTestController) handleStart() (map[string]interface{}, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.activeTrial != nil {
+		return nil, fmt.Errorf("trial already running: %s", s.activeTrial.trialID)
+	}
+
+	now := time.Now()
+	trialID := fmt.Sprintf("trial-%s", now.Format("20060102-150405"))
+	stopCh := make(chan struct{})
+
+	s.activeTrial = &trialState{
+		trialID:   trialID,
+		startedAt: now,
+		stopCh:    stopCh,
+	}
+
+	// Start background cycling loop
+	go s.cycleLoop(stopCh)
+
+	return map[string]interface{}{
+		"trial_id": trialID,
+	}, nil
+}
+
+func (s *kettleCycleTestController) cycleLoop(stopCh chan struct{}) {
+	for {
+		select {
+		case <-stopCh:
+			return
+		case <-s.cancelCtx.Done():
+			return
+		default:
+			s.handleExecuteCycle(s.cancelCtx)
+		}
+	}
+}
+
+func (s *kettleCycleTestController) handleStop() (map[string]interface{}, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.activeTrial == nil {
+		return nil, fmt.Errorf("no active trial to stop")
+	}
+
+	// Signal the loop to stop
+	close(s.activeTrial.stopCh)
+
+	result := map[string]interface{}{
+		"trial_id":    s.activeTrial.trialID,
+		"cycle_count": s.activeTrial.cycleCount,
+	}
+	s.activeTrial = nil
+
+	return result, nil
+}
+
+func (s *kettleCycleTestController) handleStatus() (map[string]interface{}, error) {
+	return s.GetState(), nil
+}
+
+func (s *kettleCycleTestController) GetState() map[string]interface{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.activeTrial == nil {
+		return map[string]interface{}{
+			"state":         "idle",
+			"trial_id":      "",
+			"cycle_count":   0,
+			"last_cycle_at": "",
+			"should_sync":   false,
+		}
+	}
+
+	lastCycleAt := ""
+	if !s.activeTrial.lastCycleAt.IsZero() {
+		lastCycleAt = s.activeTrial.lastCycleAt.Format(time.RFC3339)
+	}
+
+	return map[string]interface{}{
+		"state":         "running",
+		"trial_id":      s.activeTrial.trialID,
+		"cycle_count":   s.activeTrial.cycleCount,
+		"last_cycle_at": lastCycleAt,
+		"should_sync":   true,
+	}
 }
 
 func (s *kettleCycleTestController) Close(context.Context) error {

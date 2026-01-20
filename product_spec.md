@@ -35,7 +35,7 @@ Kettle handle stress testing — robotic arm grips kettle by handle in a custom 
 
 1. ✅ New module created: README exists, demo component performs validation, machine config in repo, basic CLI dev tools function.
 2. ✅ Arm moves back and forth between two saved positions (resting, pour-prep) on command.
-3. A cycle creates a record per cycle with the data service (tag-based correlation). CLI commands for running once, starting/stopping cycle.
+3. ✅ Trial lifecycle management with start/stop/status commands, continuous background cycling, cycle-sensor component exposes state for data capture with conditional sync field.
 4. Load cell data read via MCP3008 and logged into cycle record.
 5. Camera stores snapshot of pour-prep pose with cycle record.
 6. Motion service moves arm between saved positions with `LinearConstraint` keeping kettle level.
