@@ -99,12 +99,22 @@ Create a CLI tool/script to pull current machine config from Viam and store in r
 1. Create a feature branch: `git checkout -b feature/<milestone-or-feature-name>`
 2. Never commit directly to main
 
-### Writing Tests
-1. Write tests
-2. Run `test-scrutinizer` agent to review for quality and meaningful coverage
-3. Present tests to user for approval
-4. Run tests and get user's sign-off
-5. Implement feature
+### Planning Phase
+When entering plan mode for implementation work:
+1. Design the feature/change
+2. **Include a test plan** — list test cases with:
+   - Test name
+   - Setup/preconditions
+   - Action
+   - Expected result
+3. Run `test-scrutinizer` agent on the test plan
+4. Get user approval on the complete plan (including tests)
+
+### Implementation Phase
+1. Write tests according to approved plan
+2. Run tests (should fail - TDD)
+3. Implement feature
+4. Run tests (should pass)
 
 ### Committing Changes
 
