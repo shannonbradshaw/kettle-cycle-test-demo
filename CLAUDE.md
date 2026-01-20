@@ -230,3 +230,16 @@ When asked to commit:
 - Always use environment variables for secrets
 - Never commit .env.local or any file with API Keys.
 
+### Git Safety: Never Discard Uncommitted Work
+
+Before running ANY command that discards changes (`git checkout -- <file>`, `git restore`, `git reset --hard`, `git stash drop`):
+
+1. **Identify where the changes belong** — which branch should own them?
+2. **Preserve them first:**
+   - If they belong on current branch: commit them
+   - If they belong on a different branch: stash, switch, apply, commit, switch back
+   - If unsure: `git stash` and tell the user
+3. **Ask the user** if there's any ambiguity about whether changes should be kept
+
+**Never assume uncommitted changes can be safely discarded.** Even if they seem unrelated to the current task, they represent work that may not exist anywhere else.
+
