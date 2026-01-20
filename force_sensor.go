@@ -22,20 +22,20 @@ func init() {
 }
 
 type ForceSensorConfig struct {
-	LoadCell       string  `json:"load_cell,omitempty"`
+	LoadCell       string  `json:"load_cell"`                    // REQUIRED: name of load cell sensor
+	UseMockCurve   bool    `json:"use_mock_curve,omitempty"`     // optional: use mock force curve instead of hardware
 	ForceKey       string  `json:"force_key,omitempty"`
 	SampleRateHz   int     `json:"sample_rate_hz,omitempty"`
 	BufferSize     int     `json:"buffer_size,omitempty"`
-	ZeroThreshold  float64 `json:"zero_threshold,omitempty"`  // readings below this are "zero" (default: 5.0)
+	ZeroThreshold  float64 `json:"zero_threshold,omitempty"`     // readings below this are "zero" (default: 5.0)
 	CaptureTimeout int     `json:"capture_timeout_ms,omitempty"` // timeout in ms (default: 10000)
 }
 
 func (cfg *ForceSensorConfig) Validate(path string) ([]string, []string, error) {
-	var deps []string
-	if cfg.LoadCell != "" {
-		deps = append(deps, cfg.LoadCell)
+	if cfg.LoadCell == "" {
+		return nil, nil, fmt.Errorf("%s: load_cell is required", path)
 	}
-	return deps, nil, nil
+	return []string{cfg.LoadCell}, nil, nil
 }
 
 // forceReader abstracts force reading for mock vs hardware implementations
@@ -174,16 +174,16 @@ func newForceSensor(ctx context.Context, deps resource.Dependencies, rawConf res
 	}
 
 	var reader forceReader
-	if conf.LoadCell != "" {
+	if conf.UseMockCurve {
+		reader = newMockForceReader()
+		logger.Infof("force-sensor using mock curve (use_mock_curve=true)")
+	} else {
 		loadCellSensor, err := sensor.FromDependencies(deps, conf.LoadCell)
 		if err != nil {
 			return nil, fmt.Errorf("getting load_cell sensor: %w", err)
 		}
 		reader = newSensorForceReader(loadCellSensor, conf.ForceKey)
 		logger.Infof("force-sensor wrapping load cell %q (key: %q)", conf.LoadCell, conf.ForceKey)
-	} else {
-		reader = newMockForceReader()
-		logger.Infof("force-sensor using internal mock (no load_cell configured)")
 	}
 
 	fs := &forceSensor{

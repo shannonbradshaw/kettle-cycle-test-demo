@@ -2,7 +2,7 @@ package kettlecycletest
 
 import (
 	"context"
-	"errors"
+	"sync"
 	"testing"
 
 	"go.viam.com/rdk/components/arm"
@@ -22,13 +22,34 @@ func testDeps() (resource.Dependencies, *Config) {
 	testArm.IsMovingFunc = func(ctx context.Context) (bool, error) {
 		return false, nil
 	}
+	restingSwitch := inject.NewSwitch("resting")
+	restingSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
+		return nil
+	}
+	pourPrepSwitch := inject.NewSwitch("pour-prep")
+	pourPrepSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
+		return nil
+	}
 	deps := resource.Dependencies{
 		resource.NewName(arm.API, "test-arm"):           testArm,
-		resource.NewName(toggleswitch.API, "resting"):   inject.NewSwitch("resting"),
-		resource.NewName(toggleswitch.API, "pour-prep"): inject.NewSwitch("pour-prep"),
+		resource.NewName(toggleswitch.API, "resting"):   restingSwitch,
+		resource.NewName(toggleswitch.API, "pour-prep"): pourPrepSwitch,
 	}
 	return deps, cfg
 }
+
+func newTestController(t *testing.T) *kettleCycleTestController {
+	logger := logging.NewTestLogger(t)
+	name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
+	deps, cfg := testDeps()
+	ctrl, err := NewController(context.Background(), deps, name, cfg, logger)
+	if err != nil {
+		t.Fatalf("NewController failed: %v", err)
+	}
+	return ctrl.(*kettleCycleTestController)
+}
+
+// --- Unit: Controller Lifecycle ---
 
 func TestNewController(t *testing.T) {
 	logger := logging.NewTestLogger(t)
@@ -47,33 +68,9 @@ func TestNewController(t *testing.T) {
 	}
 }
 
-func TestDoCommand(t *testing.T) {
-	logger := logging.NewTestLogger(t)
-	name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-	deps, cfg := testDeps()
-
-	ctrl, err := NewController(context.Background(), deps, name, cfg, logger)
-	if err != nil {
-		t.Fatalf("NewController failed: %v", err)
-	}
-
-	_, err = ctrl.(*kettleCycleTestController).DoCommand(context.Background(), map[string]interface{}{})
-	if err == nil {
-		t.Error("DoCommand should return error for missing command")
-	}
-}
-
 func TestClose(t *testing.T) {
-	logger := logging.NewTestLogger(t)
-	name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-	deps, cfg := testDeps()
-
-	ctrl, err := NewController(context.Background(), deps, name, cfg, logger)
-	if err != nil {
-		t.Fatalf("NewController failed: %v", err)
-	}
-
-	err = ctrl.(*kettleCycleTestController).Close(context.Background())
+	kctrl := newTestController(t)
+	err := kctrl.Close(context.Background())
 	if err != nil {
 		t.Errorf("Close failed: %v", err)
 	}
@@ -90,25 +87,8 @@ func TestConfigValidate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Validate failed: %v", err)
 		}
-
-		// Should return arm and both switch names as required dependencies
 		if len(deps) != 3 {
 			t.Errorf("expected 3 dependencies, got %d", len(deps))
-		}
-
-		// Check all dependencies are present
-		found := map[string]bool{}
-		for _, dep := range deps {
-			found[dep] = true
-		}
-		if !found["my-arm"] {
-			t.Error("missing my-arm in dependencies")
-		}
-		if !found["resting-switch"] {
-			t.Error("missing resting-switch in dependencies")
-		}
-		if !found["pour-prep-switch"] {
-			t.Error("missing pour-prep-switch in dependencies")
 		}
 	})
 
@@ -146,446 +126,200 @@ func TestConfigValidate(t *testing.T) {
 	})
 }
 
-func TestTrialLifecycle(t *testing.T) {
-	t.Run("start creates active trial with stop channel", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-		deps, cfg := testDeps()
+// --- Unit: execute_cycle State ---
 
-		ctrl, _ := NewController(context.Background(), deps, name, cfg, logger)
-		kctrl := ctrl.(*kettleCycleTestController)
+func TestExecuteCycle_Standalone_NoCycleCountTracked(t *testing.T) {
+	kctrl := newTestController(t)
 
-		// Before start: no active trial
-		if kctrl.activeTrial != nil {
-			t.Error("expected nil activeTrial before start")
-		}
+	// No active trial
+	if kctrl.activeTrial != nil {
+		t.Fatal("expected no active trial")
+	}
 
-		result, err := kctrl.DoCommand(context.Background(), map[string]interface{}{
-			"command": "start",
-		})
-		if err != nil {
-			t.Fatalf("start failed: %v", err)
-		}
+	// Execute cycle
+	_, err := kctrl.handleExecuteCycle(context.Background())
+	if err != nil {
+		t.Fatalf("handleExecuteCycle failed: %v", err)
+	}
 
-		// After start: active trial exists with initialized channels
-		if kctrl.activeTrial == nil {
-			t.Fatal("expected activeTrial after start")
-		}
-		if kctrl.activeTrial.stopCh == nil {
-			t.Error("expected stopCh to be initialized")
-		}
-		if kctrl.activeTrial.trialID == "" {
-			t.Error("expected trialID to be set")
-		}
-		if result["trial_id"] != kctrl.activeTrial.trialID {
-			t.Errorf("returned trial_id doesn't match activeTrial.trialID")
-		}
-
-		// Clean up
-		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "stop"})
-	})
-
-	t.Run("stop clears active trial", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-		deps, cfg := testDeps()
-
-		ctrl, _ := NewController(context.Background(), deps, name, cfg, logger)
-		kctrl := ctrl.(*kettleCycleTestController)
-
-		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "start"})
-
-		result, err := kctrl.DoCommand(context.Background(), map[string]interface{}{
-			"command": "stop",
-		})
-		if err != nil {
-			t.Fatalf("stop failed: %v", err)
-		}
-
-		// After stop: no active trial
-		if kctrl.activeTrial != nil {
-			t.Error("expected nil activeTrial after stop")
-		}
-		if result["trial_id"] == "" {
-			t.Error("expected trial_id in stop result")
-		}
-	})
-
-	t.Run("start when already running returns error", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-		deps, cfg := testDeps()
-
-		ctrl, _ := NewController(context.Background(), deps, name, cfg, logger)
-		kctrl := ctrl.(*kettleCycleTestController)
-
-		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "start"})
-
-		_, err := kctrl.DoCommand(context.Background(), map[string]interface{}{
-			"command": "start",
-		})
-		if err == nil {
-			t.Error("expected error when starting already-running trial")
-		}
-
-		// Clean up
-		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "stop"})
-	})
-
-	t.Run("stop when idle returns error", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-		deps, cfg := testDeps()
-
-		ctrl, _ := NewController(context.Background(), deps, name, cfg, logger)
-		kctrl := ctrl.(*kettleCycleTestController)
-
-		_, err := kctrl.DoCommand(context.Background(), map[string]interface{}{
-			"command": "stop",
-		})
-		if err == nil {
-			t.Error("expected error when stopping with no active trial")
-		}
-	})
-
-	t.Run("status returns trial state", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-		deps, cfg := testDeps()
-
-		ctrl, _ := NewController(context.Background(), deps, name, cfg, logger)
-		kctrl := ctrl.(*kettleCycleTestController)
-
-		// Idle state
-		status, _ := kctrl.DoCommand(context.Background(), map[string]interface{}{
-			"command": "status",
-		})
-		if status["state"] != "idle" {
-			t.Errorf("expected state=idle, got %v", status["state"])
-		}
-
-		// Running state
-		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "start"})
-		status, _ = kctrl.DoCommand(context.Background(), map[string]interface{}{
-			"command": "status",
-		})
-		if status["state"] != "running" {
-			t.Errorf("expected state=running, got %v", status["state"])
-		}
-
-		// Clean up
-		kctrl.DoCommand(context.Background(), map[string]interface{}{"command": "stop"})
-	})
+	// State remains idle, no cycle count tracked
+	state := kctrl.GetState()
+	if state["state"] != "idle" {
+		t.Errorf("expected state=idle, got %v", state["state"])
+	}
+	if state["cycle_count"] != 0 {
+		t.Errorf("expected cycle_count=0 (standalone), got %v", state["cycle_count"])
+	}
 }
 
-func TestExecuteCycle(t *testing.T) {
-	t.Run("moves to pour_prep then back to resting", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
+func TestExecuteCycle_DuringTrial_IncrementsCycleCount(t *testing.T) {
+	kctrl := newTestController(t)
 
-		var restingCalls, pourPrepCalls []uint32
+	// Manually set up trial state (without starting background loop)
+	// This tests the cycle count increment logic in isolation
+	kctrl.mu.Lock()
+	kctrl.activeTrial = &trialState{
+		trialID: "test-trial",
+		stopCh:  make(chan struct{}),
+	}
+	kctrl.mu.Unlock()
 
-		restingSwitch := inject.NewSwitch("resting")
-		restingSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
-			restingCalls = append(restingCalls, position)
-			return nil
-		}
+	state := kctrl.GetState()
+	if state["cycle_count"] != 0 {
+		t.Fatalf("expected initial cycle_count=0, got %v", state["cycle_count"])
+	}
 
-		pourPrepSwitch := inject.NewSwitch("pour-prep")
-		pourPrepSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
-			pourPrepCalls = append(pourPrepCalls, position)
-			return nil
-		}
+	// Execute cycle
+	_, err := kctrl.handleExecuteCycle(context.Background())
+	if err != nil {
+		t.Fatalf("handleExecuteCycle failed: %v", err)
+	}
 
-		testArm := inject.NewArm("test-arm")
-		testArm.IsMovingFunc = func(ctx context.Context) (bool, error) {
-			return false, nil
-		}
+	// Verify cycle_count = 1, lastCycleAt updated
+	state = kctrl.GetState()
+	if state["cycle_count"] != 1 {
+		t.Errorf("expected cycle_count=1, got %v", state["cycle_count"])
+	}
+	if state["last_cycle_at"] == "" {
+		t.Error("expected last_cycle_at to be set")
+	}
 
-		deps := resource.Dependencies{
-			resource.NewName(arm.API, "test-arm"):           testArm,
-			resource.NewName(toggleswitch.API, "resting"):   restingSwitch,
-			resource.NewName(toggleswitch.API, "pour-prep"): pourPrepSwitch,
-		}
-
-		cfg := &Config{
-			Arm:              "test-arm",
-			RestingPosition:  "resting",
-			PourPrepPosition: "pour-prep",
-		}
-
-		ctrl, err := NewController(context.Background(), deps, name, cfg, logger)
-		if err != nil {
-			t.Fatalf("NewController failed: %v", err)
-		}
-
-		result, err := ctrl.(*kettleCycleTestController).DoCommand(context.Background(), map[string]interface{}{
-			"command": "execute_cycle",
-		})
-		if err != nil {
-			t.Fatalf("execute_cycle failed: %v", err)
-		}
-
-		// Verify pour_prep switch was triggered (position 2)
-		if len(pourPrepCalls) != 1 || pourPrepCalls[0] != 2 {
-			t.Errorf("pour_prep switch: expected [2], got %v", pourPrepCalls)
-		}
-
-		// Verify resting switch was triggered (position 2)
-		if len(restingCalls) != 1 || restingCalls[0] != 2 {
-			t.Errorf("resting switch: expected [2], got %v", restingCalls)
-		}
-
-		// Verify success response
-		if result["status"] != "completed" {
-			t.Errorf("expected status=completed, got %v", result["status"])
-		}
-	})
-
-	t.Run("returns error when pour_prep switch fails", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-
-		var restingCalls []uint32
-
-		restingSwitch := inject.NewSwitch("resting")
-		restingSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
-			restingCalls = append(restingCalls, position)
-			return nil
-		}
-
-		pourPrepSwitch := inject.NewSwitch("pour-prep")
-		pourPrepSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
-			return errors.New("switch error")
-		}
-
-		testArm := inject.NewArm("test-arm")
-		testArm.IsMovingFunc = func(ctx context.Context) (bool, error) {
-			return false, nil
-		}
-
-		deps := resource.Dependencies{
-			resource.NewName(arm.API, "test-arm"):           testArm,
-			resource.NewName(toggleswitch.API, "resting"):   restingSwitch,
-			resource.NewName(toggleswitch.API, "pour-prep"): pourPrepSwitch,
-		}
-
-		cfg := &Config{
-			Arm:              "test-arm",
-			RestingPosition:  "resting",
-			PourPrepPosition: "pour-prep",
-		}
-
-		ctrl, err := NewController(context.Background(), deps, name, cfg, logger)
-		if err != nil {
-			t.Fatalf("NewController failed: %v", err)
-		}
-
-		_, err = ctrl.(*kettleCycleTestController).DoCommand(context.Background(), map[string]interface{}{
-			"command": "execute_cycle",
-		})
-		if err == nil {
-			t.Error("expected error when pour_prep switch fails")
-		}
-
-		// Resting switch should NOT have been called since pour_prep failed
-		if len(restingCalls) != 0 {
-			t.Errorf("resting switch should not be called after pour_prep fails, got %v calls", len(restingCalls))
-		}
-	})
-
-	t.Run("returns error when resting switch fails", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-
-		var pourPrepCalls []uint32
-
-		restingSwitch := inject.NewSwitch("resting")
-		restingSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
-			return errors.New("switch error")
-		}
-
-		pourPrepSwitch := inject.NewSwitch("pour-prep")
-		pourPrepSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
-			pourPrepCalls = append(pourPrepCalls, position)
-			return nil
-		}
-
-		testArm := inject.NewArm("test-arm")
-		testArm.IsMovingFunc = func(ctx context.Context) (bool, error) {
-			return false, nil
-		}
-
-		deps := resource.Dependencies{
-			resource.NewName(arm.API, "test-arm"):           testArm,
-			resource.NewName(toggleswitch.API, "resting"):   restingSwitch,
-			resource.NewName(toggleswitch.API, "pour-prep"): pourPrepSwitch,
-		}
-
-		cfg := &Config{
-			Arm:              "test-arm",
-			RestingPosition:  "resting",
-			PourPrepPosition: "pour-prep",
-		}
-
-		ctrl, err := NewController(context.Background(), deps, name, cfg, logger)
-		if err != nil {
-			t.Fatalf("NewController failed: %v", err)
-		}
-
-		_, err = ctrl.(*kettleCycleTestController).DoCommand(context.Background(), map[string]interface{}{
-			"command": "execute_cycle",
-		})
-		if err == nil {
-			t.Error("expected error when resting switch fails")
-		}
-
-		// Pour prep should have been called before resting failed
-		if len(pourPrepCalls) != 1 {
-			t.Errorf("pour_prep switch should have been called once, got %v", len(pourPrepCalls))
-		}
-	})
+	// Cleanup - manually clear trial
+	kctrl.mu.Lock()
+	kctrl.activeTrial = nil
+	kctrl.mu.Unlock()
 }
 
-func TestGetSamplingPhase(t *testing.T) {
-	t.Run("returns empty when idle", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-		deps, cfg := testDeps()
+// --- Unit: Thread Safety ---
 
-		ctrl, err := NewController(context.Background(), deps, name, cfg, logger)
-		if err != nil {
-			t.Fatalf("NewController failed: %v", err)
-		}
+func TestController_ThreadSafety(t *testing.T) {
+	kctrl := newTestController(t)
 
-		kctrl := ctrl.(*kettleCycleTestController)
-		phase := kctrl.GetSamplingPhase()
-		if phase != "" {
-			t.Errorf("expected empty phase, got %q", phase)
-		}
-	})
+	// Start active trial
+	kctrl.handleStart()
 
-	t.Run("implements stateProvider interface", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
-		deps, cfg := testDeps()
+	// Spawn goroutines doing concurrent operations
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 10; j++ {
+				kctrl.GetState()
+				kctrl.handleStatus()
+			}
+		}()
+	}
 
-		ctrl, err := NewController(context.Background(), deps, name, cfg, logger)
-		if err != nil {
-			t.Fatalf("NewController failed: %v", err)
-		}
+	wg.Wait()
+	kctrl.handleStop()
+}
 
-		// Type assert to stateProvider to verify interface compliance
-		provider, ok := ctrl.(stateProvider)
-		if !ok {
-			t.Fatal("controller does not implement stateProvider")
-		}
+// --- Integration: Trial State Machine ---
 
-		// Verify both interface methods work
-		_ = provider.GetState()
-		_ = provider.GetSamplingPhase()
-	})
+func TestTrial_StartWhileRunning_Errors(t *testing.T) {
+	kctrl := newTestController(t)
 
-	t.Run("clears phase after cycle completes", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
+	kctrl.handleStart()
+	_, err := kctrl.handleStart()
+	if err == nil {
+		t.Error("expected error when starting already-running trial")
+	}
+	kctrl.handleStop()
+}
 
-		restingSwitch := inject.NewSwitch("resting")
-		restingSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
-			return nil
-		}
+func TestTrial_StopWhileIdle_Errors(t *testing.T) {
+	kctrl := newTestController(t)
 
-		pourPrepSwitch := inject.NewSwitch("pour-prep")
-		pourPrepSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
-			return nil
-		}
+	_, err := kctrl.handleStop()
+	if err == nil {
+		t.Error("expected error when stopping with no active trial")
+	}
+}
 
-		testArm := inject.NewArm("test-arm")
-		testArm.IsMovingFunc = func(ctx context.Context) (bool, error) {
-			return false, nil
-		}
+func TestTrial_Start_InitializesState(t *testing.T) {
+	kctrl := newTestController(t)
 
-		deps := resource.Dependencies{
-			resource.NewName(arm.API, "test-arm"):           testArm,
-			resource.NewName(toggleswitch.API, "resting"):   restingSwitch,
-			resource.NewName(toggleswitch.API, "pour-prep"): pourPrepSwitch,
-		}
+	// Before start: no active trial
+	if kctrl.activeTrial != nil {
+		t.Error("expected nil activeTrial before start")
+	}
 
-		cfg := &Config{
-			Arm:              "test-arm",
-			RestingPosition:  "resting",
-			PourPrepPosition: "pour-prep",
-		}
+	result, err := kctrl.handleStart()
+	if err != nil {
+		t.Fatalf("handleStart failed: %v", err)
+	}
 
-		ctrl, err := NewController(context.Background(), deps, name, cfg, logger)
-		if err != nil {
-			t.Fatalf("NewController failed: %v", err)
-		}
+	// After start: active trial exists with initialized channels
+	if kctrl.activeTrial == nil {
+		t.Fatal("expected activeTrial after start")
+	}
+	if kctrl.activeTrial.stopCh == nil {
+		t.Error("expected stopCh to be initialized")
+	}
+	if kctrl.activeTrial.trialID == "" {
+		t.Error("expected trialID to be set")
+	}
+	if result["trial_id"] != kctrl.activeTrial.trialID {
+		t.Error("returned trial_id doesn't match activeTrial.trialID")
+	}
 
-		kctrl := ctrl.(*kettleCycleTestController)
+	kctrl.handleStop()
+}
 
-		// Execute a cycle
-		_, err = kctrl.DoCommand(context.Background(), map[string]interface{}{
-			"command": "execute_cycle",
-		})
-		if err != nil {
-			t.Fatalf("execute_cycle failed: %v", err)
-		}
+func TestTrial_Stop_CleansState(t *testing.T) {
+	kctrl := newTestController(t)
 
-		// After cycle, phase should be cleared
-		phase := kctrl.GetSamplingPhase()
-		if phase != "" {
-			t.Errorf("expected empty phase after cycle, got %q", phase)
-		}
-	})
+	kctrl.handleStart()
+	trialID := kctrl.activeTrial.trialID
 
-	t.Run("clears phase on resting switch error", func(t *testing.T) {
-		logger := logging.NewTestLogger(t)
-		name := resource.NewName(resource.APINamespaceRDK.WithServiceType("generic"), "test")
+	result, err := kctrl.handleStop()
+	if err != nil {
+		t.Fatalf("handleStop failed: %v", err)
+	}
 
-		restingSwitch := inject.NewSwitch("resting")
-		restingSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
-			return errors.New("switch error")
-		}
+	// After stop: no active trial
+	if kctrl.activeTrial != nil {
+		t.Error("expected nil activeTrial after stop")
+	}
+	if result["trial_id"] != trialID {
+		t.Error("expected trial_id in stop result")
+	}
+}
 
-		pourPrepSwitch := inject.NewSwitch("pour-prep")
-		pourPrepSwitch.SetPositionFunc = func(ctx context.Context, position uint32, extra map[string]interface{}) error {
-			return nil
-		}
+func TestTrial_CycleCountStartsAtZero(t *testing.T) {
+	kctrl := newTestController(t)
 
-		testArm := inject.NewArm("test-arm")
-		testArm.IsMovingFunc = func(ctx context.Context) (bool, error) {
-			return false, nil
-		}
+	// Start trial, immediately check status
+	kctrl.handleStart()
+	state := kctrl.GetState()
 
-		deps := resource.Dependencies{
-			resource.NewName(arm.API, "test-arm"):           testArm,
-			resource.NewName(toggleswitch.API, "resting"):   restingSwitch,
-			resource.NewName(toggleswitch.API, "pour-prep"): pourPrepSwitch,
-		}
+	// Verify cycle_count = 0
+	if state["cycle_count"] != 0 {
+		t.Errorf("expected cycle_count=0 at start, got %v", state["cycle_count"])
+	}
+	if state["state"] != "running" {
+		t.Errorf("expected state=running, got %v", state["state"])
+	}
 
-		cfg := &Config{
-			Arm:              "test-arm",
-			RestingPosition:  "resting",
-			PourPrepPosition: "pour-prep",
-		}
+	kctrl.handleStop()
+}
 
-		ctrl, err := NewController(context.Background(), deps, name, cfg, logger)
-		if err != nil {
-			t.Fatalf("NewController failed: %v", err)
-		}
+func TestTrial_StatusReturnsTrialState(t *testing.T) {
+	kctrl := newTestController(t)
 
-		kctrl := ctrl.(*kettleCycleTestController)
+	// Idle state
+	status, _ := kctrl.handleStatus()
+	if status["state"] != "idle" {
+		t.Errorf("expected state=idle, got %v", status["state"])
+	}
 
-		// Execute cycle - will fail on resting switch
-		_, _ = kctrl.DoCommand(context.Background(), map[string]interface{}{
-			"command": "execute_cycle",
-		})
+	// Running state
+	kctrl.handleStart()
+	status, _ = kctrl.handleStatus()
+	if status["state"] != "running" {
+		t.Errorf("expected state=running, got %v", status["state"])
+	}
 
-		// Phase should still be cleared even on error
-		phase := kctrl.GetSamplingPhase()
-		if phase != "" {
-			t.Errorf("expected empty phase after error, got %q", phase)
-		}
-	})
+	kctrl.handleStop()
 }

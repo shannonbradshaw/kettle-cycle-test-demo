@@ -9,21 +9,21 @@ import (
 	"go.viam.com/rdk/resource"
 )
 
-var CycleSensor = resource.NewModel("viamdemo", "kettle-cycle-test", "cycle-sensor")
+var TrialSensor = resource.NewModel("viamdemo", "kettle-cycle-test", "trial-sensor")
 
 func init() {
-	resource.RegisterComponent(sensor.API, CycleSensor,
-		resource.Registration[sensor.Sensor, *SensorConfig]{
-			Constructor: newCycleSensor,
+	resource.RegisterComponent(sensor.API, TrialSensor,
+		resource.Registration[sensor.Sensor, *TrialSensorConfig]{
+			Constructor: newTrialSensor,
 		},
 	)
 }
 
-type SensorConfig struct {
+type TrialSensorConfig struct {
 	Controller string `json:"controller"`
 }
 
-func (cfg *SensorConfig) Validate(path string) ([]string, []string, error) {
+func (cfg *TrialSensorConfig) Validate(path string) ([]string, []string, error) {
 	if cfg.Controller == "" {
 		return nil, nil, fmt.Errorf("%s: controller is required", path)
 	}
@@ -34,10 +34,9 @@ func (cfg *SensorConfig) Validate(path string) ([]string, []string, error) {
 
 type stateProvider interface {
 	GetState() map[string]interface{}
-	GetSamplingPhase() string
 }
 
-type cycleSensor struct {
+type trialSensor struct {
 	resource.AlwaysRebuild
 
 	name       resource.Name
@@ -45,8 +44,8 @@ type cycleSensor struct {
 	controller stateProvider
 }
 
-func newCycleSensor(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (sensor.Sensor, error) {
-	conf, err := resource.NativeConfig[*SensorConfig](rawConf)
+func newTrialSensor(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (sensor.Sensor, error) {
+	conf, err := resource.NativeConfig[*TrialSensorConfig](rawConf)
 	if err != nil {
 		return nil, err
 	}
@@ -62,25 +61,25 @@ func newCycleSensor(ctx context.Context, deps resource.Dependencies, rawConf res
 		return nil, fmt.Errorf("controller %q does not implement GetState", conf.Controller)
 	}
 
-	return &cycleSensor{
+	return &trialSensor{
 		name:       rawConf.ResourceName(),
 		logger:     logger,
 		controller: provider,
 	}, nil
 }
 
-func (s *cycleSensor) Name() resource.Name {
+func (s *trialSensor) Name() resource.Name {
 	return s.name
 }
 
-func (s *cycleSensor) Readings(ctx context.Context, extra map[string]interface{}) (map[string]interface{}, error) {
+func (s *trialSensor) Readings(ctx context.Context, extra map[string]interface{}) (map[string]interface{}, error) {
 	return s.controller.GetState(), nil
 }
 
-func (s *cycleSensor) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
-	return nil, fmt.Errorf("DoCommand not supported on cycle-sensor")
+func (s *trialSensor) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
+	return nil, fmt.Errorf("DoCommand not supported on trial-sensor")
 }
 
-func (s *cycleSensor) Close(context.Context) error {
+func (s *trialSensor) Close(context.Context) error {
 	return nil
 }

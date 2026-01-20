@@ -25,6 +25,9 @@ Milestone 4 complete. Force sensor captures load cell data during put-down phase
 
 ## Technical Debt
 - `cycleLoop()` in module.go ignores errors from `handleExecuteCycle()` - should log failures during continuous trials
+- Rename `samplingLoop()` in force_sensor.go to have a verb (e.g., `runSamplingLoop()`)
+- Investigate selectively disabling data capture polling when not in a trial (vs relying on `should_sync=false`)
+- Force sensor requires `load_cell` config but uses mock when `use_mock_curve=true` - consider making mock a virtual sensor for cleaner config
 
 # Implementation Notes
 - Use `LinearConstraint` for level kettle movement; highlight in README as Viam feature
@@ -34,7 +37,7 @@ Milestone 4 complete. Force sensor captures load cell data during put-down phase
 - Position-saver switches (vmodutils) trigger arm movements; arm is explicit dependency for clarity in service dependency chain
 - `execute_cycle` moves: resting → pour_prep → pause (1s) → resting → pause (1s)
 - Trial lifecycle: `start` begins continuous cycling in background goroutine, `stop` ends trial and returns count
-- Cycle-sensor component wraps controller state via `stateProvider` interface for Viam data capture
+- Trial-sensor component wraps controller state via `stateProvider` interface for Viam data capture
 - `should_sync` field enables conditional data capture (only sync when trial is active)
 - Service dependencies work like component dependencies; sensor declares controller as full resource name
 - Force sensor wraps `forceReader` interface (mock or sensorForceReader) for hardware abstraction
@@ -133,19 +136,32 @@ Use `/feature-dev` as the primary workflow for non-trivial features. It provides
 - Implementation with quality review
 
 **Project-specific addition after Architecture Design (Phase 4):**
-Before implementation, create a test plan with:
-- Test name
-- Setup/preconditions
-- Action
-- Expected result
+Before implementation, create a test plan using the required template:
 
-Delegate to `test-scrutinizer` agent for review. Address issues and get user approval before proceeding to implementation.
+| Test Name | Category | Custom Logic Tested |
+|-----------|----------|---------------------|
+| ... | ... | ... |
+
+Categories: Config validation, Constructor validation, State machine, Thread safety, Error handling, Integration, Documentation
+
+**Test Scrutiny Phase 1:** Delegate to `test-scrutinizer` agent for plan review. The agent will:
+- Verify each test names specific custom logic (not SDK/library code)
+- Validate categories are accurate (not just accepted at face value)
+- Save the approved proposal to `.claude/test-proposals/<branch-name>.md` for Phase 2 comparison
+
+Tests must name specific custom logic being tested — if you can't, it's likely plumbing.
 
 ### Implementation Phase (TDD)
 1. Write tests according to approved plan
 2. Run tests (should fail)
 3. Implement feature
 4. Run tests (should pass)
+5. **Test Scrutiny Phase 2:** Delegate to `test-scrutinizer` agent for implementation review
+   - Agent reads saved proposal from `.claude/test-proposals/<branch-name>.md`
+   - Compares written tests against proposal
+   - Verifies tests actually test what they claimed to test
+   - Checks for proper techniques (direct handlers, state verification, direct state setup)
+6. **If Phase 2 fails:** Return to step 1 — rewrite tests to match proposal, or revise proposal and re-run Phase 1
 
 ### Physical Validation
 Before updating docs, verify the feature works on real hardware:
@@ -171,6 +187,94 @@ When asked to commit:
 2. Address any blocking issues
 3. Merge branch to main (solo) or open PR (collaborative)
 4. Use `retro-reviewer` agent periodically to review Claude Code usage and suggest improvements
+
+## Testing Philosophy
+
+### Test the Right Things at the Right Layers
+
+**Unit tests** — custom logic only:
+- State machines (transitions, edge cases)
+- Config/constructor validation
+- Thread safety of concurrent operations
+- Error handling (our handling logic, not that errors propagate)
+
+**Integration tests** — system state at lifecycle boundaries:
+- State after start/stop operations
+- Correct initialization of compound state
+- Multi-component coordination results
+
+**Documentation tests** — prove contracts:
+- Wrapper components return exactly what they wrap (e.g., sensor.Readings() == controller.GetState())
+
+### What NOT to Test
+
+| Anti-pattern | Example | Why it's bad |
+|--------------|---------|--------------|
+| Plumbing | "DoCommand routes to handleStart" | Tests dispatch, not logic |
+| Delegation | "sensor.Readings calls controller.GetState" | Tests wiring, not behavior |
+| Library code | "switch.SetPosition moves arm" | Trust the SDK |
+| Orchestration | "execute_cycle calls switch A then switch B" | Tests sequence, not outcomes |
+| Dead code | "GetSamplingPhase returns empty" | If unused, delete it |
+| Constants | "defaultTimeout == 10s" | Tautology |
+
+### Testing Techniques
+
+**Direct handler calls** — test handlers directly, not through DoCommand:
+```go
+// Bad: tests DoCommand dispatch + handler
+kctrl.DoCommand(ctx, map[string]interface{}{"command": "start"})
+
+// Good: tests handler logic only
+kctrl.handleStart()
+```
+
+**State verification over call verification** — verify resulting state, not that calls were made:
+```go
+// Bad: verify switch was called
+assert(mockSwitch.SetPositionCalled)
+
+// Good: verify system state after operation
+state := kctrl.GetState()
+assert(state["cycle_count"] == 1)
+```
+
+**Direct state setup** — set state directly rather than calling code that sets state (unless testing that code):
+```go
+// Bad: calls handleStart() which spawns goroutine, creating race with our test
+kctrl.handleStart()
+kctrl.handleExecuteCycle(ctx)
+state := kctrl.GetState() // racing with background loop!
+
+// Good: manually set up trial state to test cycle increment in isolation
+kctrl.mu.Lock()
+kctrl.activeTrial = &trialState{trialID: "test", stopCh: make(chan struct{})}
+kctrl.mu.Unlock()
+kctrl.handleExecuteCycle(ctx)
+state := kctrl.GetState() // no race, testing exactly what we want
+```
+
+This isolates the logic under test. If `handleStart()` breaks, a test for `handleStart()` will catch it — not every test that happens to use it.
+
+### Test Proposal Template
+
+When proposing tests during planning, use this format:
+
+| Test Name | Category | Custom Logic Tested |
+|-----------|----------|---------------------|
+| TestTrial_StartWhileRunning_Errors | State machine | Mutex-protected concurrent start rejection |
+| TestForceSensor_BufferRolling | State machine | Ring buffer overflow handling |
+| TestTrialSensor_ReadingsMatchesController | Documentation | Wrapper returns identical state to source |
+
+**Categories:**
+- `Config validation` — required fields, invalid values
+- `Constructor validation` — dependency resolution, initialization errors
+- `State machine` — transitions, guards, concurrent access
+- `Thread safety` — race conditions under concurrent access
+- `Error handling` — our error wrapping/recovery logic
+- `Integration` — system state at lifecycle boundaries
+- `Documentation` — proves API contracts
+
+The category + custom logic columns implicitly justify the test. If you can't name specific custom logic being tested, the test is likely plumbing.
 
 ## Troubleshooting
 

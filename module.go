@@ -71,9 +71,8 @@ type kettleCycleTestController struct {
 	cancelCtx  context.Context
 	cancelFunc func()
 
-	mu            sync.Mutex
-	activeTrial   *trialState
-	samplingPhase string // "", "put_down"
+	mu          sync.Mutex
+	activeTrial *trialState
 }
 
 func newKettleCycleTestController(ctx context.Context, deps resource.Dependencies, rawConf resource.Config, logger logging.Logger) (resource.Resource, error) {
@@ -162,11 +161,6 @@ func (s *kettleCycleTestController) handleExecuteCycle(ctx context.Context) (map
 	case <-time.After(1 * time.Second):
 	}
 
-	// Signal start of put-down phase for force sampling
-	s.mu.Lock()
-	s.samplingPhase = "put_down"
-	s.mu.Unlock()
-
 	// Start force capture if sensor is configured
 	if s.forceSensor != nil {
 		s.mu.Lock()
@@ -184,9 +178,6 @@ func (s *kettleCycleTestController) handleExecuteCycle(ctx context.Context) (map
 	}
 
 	if err := s.resting.SetPosition(ctx, 2, nil); err != nil {
-		s.mu.Lock()
-		s.samplingPhase = ""
-		s.mu.Unlock()
 		// Try to end capture on error
 		if s.forceSensor != nil {
 			s.forceSensor.DoCommand(ctx, map[string]interface{}{"command": "end_capture"})
@@ -211,9 +202,7 @@ func (s *kettleCycleTestController) handleExecuteCycle(ctx context.Context) (map
 		}
 	}
 
-	// Signal end of put-down phase
 	s.mu.Lock()
-	s.samplingPhase = ""
 	if s.activeTrial != nil {
 		s.activeTrial.cycleCount++
 		s.activeTrial.lastCycleAt = time.Now()
@@ -345,12 +334,6 @@ func (s *kettleCycleTestController) GetState() map[string]interface{} {
 		"last_cycle_at": lastCycleAt,
 		"should_sync":   true,
 	}
-}
-
-func (s *kettleCycleTestController) GetSamplingPhase() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.samplingPhase
 }
 
 func (s *kettleCycleTestController) Close(context.Context) error {
