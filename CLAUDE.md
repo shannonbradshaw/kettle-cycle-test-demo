@@ -111,21 +111,25 @@ Create a CLI tool/script to pull current machine config from Viam and store in r
 1. Use `/start-feature <name>` to create and switch to a feature branch
 2. Never commit directly to main
 
-### Planning Phase
-When entering plan mode for implementation work:
-1. Design the feature/change
-2. **Include a test plan** — list test cases with:
-   - Test name
-   - Setup/preconditions
-   - Action
-   - Expected result
-3. **Delegate to `test-scrutinizer` agent** — pass the full plan for review
-4. Address any issues raised by test-scrutinizer
-5. Get user approval on the complete plan (including tests)
+### Feature Development
+Use `/feature-dev` as the primary workflow for non-trivial features. It provides:
+- Discovery and clarifying questions
+- Agent-driven codebase exploration
+- Architecture design with trade-off analysis
+- Implementation with quality review
 
-### Implementation Phase
+**Project-specific addition after Architecture Design (Phase 4):**
+Before implementation, create a test plan with:
+- Test name
+- Setup/preconditions
+- Action
+- Expected result
+
+Delegate to `test-scrutinizer` agent for review. Address issues and get user approval before proceeding to implementation.
+
+### Implementation Phase (TDD)
 1. Write tests according to approved plan
-2. Run tests (should fail - TDD)
+2. Run tests (should fail)
 3. Implement feature
 4. Run tests (should pass)
 
