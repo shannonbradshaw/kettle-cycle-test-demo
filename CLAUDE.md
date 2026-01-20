@@ -119,8 +119,11 @@ Create a CLI tool/script to pull current machine config from Viam and store in r
 ## Development Workflow
 
 ### Starting Work
-1. Use `/start-feature <name>` to create and switch to a feature branch
-2. Never commit directly to main
+1. **Run `pre-work-check` agent** — verifies feature branch and passing tests
+2. If on main, use `/start-feature <name>` to create branch
+3. Never commit directly to main
+
+**Important:** After context compaction, branch state may be lost. Always verify with `pre-work-check` before continuing work.
 
 ### Feature Development
 Use `/feature-dev` as the primary workflow for non-trivial features. It provides:
