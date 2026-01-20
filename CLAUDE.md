@@ -54,8 +54,15 @@ The README has a **target outline** (in product_spec.md) and a **backlog** (belo
 ## Project Commands
 
 ### Viam CLI
-- `viam machine part run` — run commands against the machine
+- `viam machine part run --part <part_id> --method <method> --data '{}'` — run commands against the machine
+- `viam machine part run --part <part_id> --component <name> --method DoCommand --data '{}'` — call DoCommand on a component/service
+- `viam organizations list` — list orgs and their namespaces
 - Machine config stored in `machine.json`
+
+### Development Commands
+- `go test ./...` — run all unit tests
+- `make module.tar.gz` — build packaged module
+- `viam module reload-local --part-id <part_id>` — hot-reload to robot
 
 ### Module Generation
 ```bash
@@ -92,14 +99,34 @@ Create a CLI tool/script to pull current machine config from Viam and store in r
 4. Implement feature
 
 ### Before Committing
-1. Run tests: `go test ./...`
-2. Use `docs-updater` agent to update README and CLAUDE.md
-3. Use `changelog-updater` agent to update changelog.md
-4. Commit
+The pre-commit hook (`.claude/hooks/pre-commit.md`) automates:
+1. Running tests
+2. Running docs-updater agent
+3. Running changelog-updater agent
+4. Staging doc changes
+
+Just commit — the hook handles the rest.
 
 ### Completing Work
 1. Merge branch to main (solo) or open PR (collaborative)
 2. Use `retro-reviewer` agent to review Claude Code usage and suggest workflow improvements
+
+## Troubleshooting
+
+### Module Won't Register
+- **Symptom:** Module uploads but doesn't appear in machine config
+- **Fix:** Ensure your org's public namespace is set in Viam app (Settings → Organization)
+- **Note:** Namespace in `viam module generate --public-namespace` must match org setting
+
+### Hot Reload Fails
+- **Symptom:** `viam module reload-local` hangs or errors
+- **Fix:** Check `machine.json` has correct part_id and machine is online
+
+### Service vs Component Mismatch
+- **Symptom:** "unknown resource type" error in logs
+- **Fix:** Ensure the API in machine config matches the module registration:
+  - `rdk:service:generic` → use `generic-service` subtype, `RegisterService()` in code
+  - `rdk:component:generic` → use `generic-component` subtype, `RegisterComponent()` in code
 
 ## Reference
 
