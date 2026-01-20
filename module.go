@@ -2,18 +2,17 @@ package kettlecycletest
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"time"
 
+	"go.viam.com/rdk/components/arm"
+	toggleswitch "go.viam.com/rdk/components/switch"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/resource"
 	generic "go.viam.com/rdk/services/generic"
 )
 
-var (
-	Controller       = resource.NewModel("viamdemo", "kettle-cycle-test", "controller")
-	errUnimplemented = errors.New("unimplemented")
-)
+var Controller = resource.NewModel("viamdemo", "kettle-cycle-test", "controller")
 
 func init() {
 	resource.RegisterService(generic.API, Controller,
@@ -24,44 +23,34 @@ func init() {
 }
 
 type Config struct {
-	/*
-		Put config attributes here. There should be public/exported fields
-		with a `json` parameter at the end of each attribute.
-
-		Example config struct:
-			type Config struct {
-				Pin   string `json:"pin"`
-				Board string `json:"board"`
-				MinDeg *float64 `json:"min_angle_deg,omitempty"`
-			}
-
-		If your model does not need a config, replace *Config in the init
-		function with resource.NoNativeConfig
-	*/
+	Arm              string `json:"arm"`
+	RestingPosition  string `json:"resting_position"`
+	PourPrepPosition string `json:"pour_prep_position"`
 }
 
-// Validate ensures all parts of the config are valid and important fields exist.
-// Returns three values:
-//  1. Required dependencies: other resources that must exist for this resource to work.
-//  2. Optional dependencies: other resources that may exist but are not required.
-//  3. An error if any Config fields are missing or invalid.
-//
-// The `path` parameter indicates
-// where this resource appears in the machine's JSON configuration
-// (for example, "components.0"). You can use it in error messages
-// to indicate which resource has a problem.
 func (cfg *Config) Validate(path string) ([]string, []string, error) {
-	// Add config validation code here
-	return nil, nil, nil
+	if cfg.Arm == "" {
+		return nil, nil, fmt.Errorf("%s: arm is required", path)
+	}
+	if cfg.RestingPosition == "" {
+		return nil, nil, fmt.Errorf("%s: resting_position is required", path)
+	}
+	if cfg.PourPrepPosition == "" {
+		return nil, nil, fmt.Errorf("%s: pour_prep_position is required", path)
+	}
+	return []string{cfg.Arm, cfg.RestingPosition, cfg.PourPrepPosition}, nil, nil
 }
 
 type kettleCycleTestController struct {
 	resource.AlwaysRebuild
 
-	name resource.Name
-
+	name   resource.Name
 	logger logging.Logger
 	cfg    *Config
+
+	arm      arm.Arm
+	resting  toggleswitch.Switch
+	pourPrep toggleswitch.Switch
 
 	cancelCtx  context.Context
 	cancelFunc func()
@@ -78,6 +67,20 @@ func newKettleCycleTestController(ctx context.Context, deps resource.Dependencie
 }
 
 func NewController(ctx context.Context, deps resource.Dependencies, name resource.Name, conf *Config, logger logging.Logger) (resource.Resource, error) {
+	a, err := arm.FromDependencies(deps, conf.Arm)
+	if err != nil {
+		return nil, fmt.Errorf("getting arm: %w", err)
+	}
+
+	resting, err := toggleswitch.FromDependencies(deps, conf.RestingPosition)
+	if err != nil {
+		return nil, fmt.Errorf("getting resting position switch: %w", err)
+	}
+
+	pourPrep, err := toggleswitch.FromDependencies(deps, conf.PourPrepPosition)
+	if err != nil {
+		return nil, fmt.Errorf("getting pour_prep position switch: %w", err)
+	}
 
 	cancelCtx, cancelFunc := context.WithCancel(context.Background())
 
@@ -85,6 +88,9 @@ func NewController(ctx context.Context, deps resource.Dependencies, name resourc
 		name:       name,
 		logger:     logger,
 		cfg:        conf,
+		arm:        a,
+		resting:    resting,
+		pourPrep:   pourPrep,
 		cancelCtx:  cancelCtx,
 		cancelFunc: cancelFunc,
 	}
@@ -96,7 +102,35 @@ func (s *kettleCycleTestController) Name() resource.Name {
 }
 
 func (s *kettleCycleTestController) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
-	return nil, fmt.Errorf("not implemented")
+	command, ok := cmd["command"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing or invalid 'command' field")
+	}
+
+	switch command {
+	case "execute_cycle":
+		return s.handleExecuteCycle(ctx)
+	default:
+		return nil, fmt.Errorf("unknown command: %s", command)
+	}
+}
+
+func (s *kettleCycleTestController) handleExecuteCycle(ctx context.Context) (map[string]interface{}, error) {
+	if err := s.pourPrep.SetPosition(ctx, 2, nil); err != nil {
+		return nil, fmt.Errorf("moving to pour_prep position: %w", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(1 * time.Second):
+	}
+
+	if err := s.resting.SetPosition(ctx, 2, nil); err != nil {
+		return nil, fmt.Errorf("returning to resting position: %w", err)
+	}
+
+	return map[string]interface{}{"status": "completed"}, nil
 }
 
 func (s *kettleCycleTestController) Close(context.Context) error {

@@ -33,8 +33,8 @@ Kettle handle stress testing — robotic arm grips kettle by handle in a custom 
 
 ## Milestones
 
-1. New module created: README exists, demo component performs validation, machine config in repo, basic CLI dev tools function.
-2. Arm moves back and forth between two saved positions (resting, pour-prep) on command.
+1. ✅ New module created: README exists, demo component performs validation, machine config in repo, basic CLI dev tools function.
+2. ✅ Arm moves back and forth between two saved positions (resting, pour-prep) on command.
 3. A cycle creates a record per cycle with the data service (tag-based correlation). CLI commands for running once, starting/stopping cycle.
 4. Load cell data read via MCP3008 and logged into cycle record.
 5. Camera stores snapshot of pour-prep pose with cycle record.
@@ -88,8 +88,10 @@ Kettle handle stress testing — robotic arm grips kettle by handle in a custom 
 ### Modules
 - `viam-ufactory-xarm` — Lite6 arm support
 - `viam-labs:mcp300x-adc-sensor` — load cell ADC reading
-- `vmodutils` (Eliot's) — position-saver
+- `vmodutils` — position-saver switches that trigger arm movements to saved positions
 - Custom controller module (this project) — orchestrates the pour cycle routine, training mode
+  - Uses position-saver switches via toggleswitch.Switch interface
+  - Arm is explicit dependency for clear dependency chain
 
 ### Additional Demo Elements
 

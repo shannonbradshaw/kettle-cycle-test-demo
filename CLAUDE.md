@@ -15,7 +15,7 @@
 7. Publish module publicly
 
 ### Current Milestone
-Milestone 1 complete. Ready to begin Milestone 2 (arm movement between saved positions).
+Milestone 2 complete. Arm moves between saved positions via position-saver switches on command.
 
 *(Keep this updated whenever a project phase or milestone advances.)*
 
@@ -27,7 +27,9 @@ Milestone 1 complete. Ready to begin Milestone 2 (arm movement between saved pos
 - Use `LinearConstraint` for level kettle movement; highlight in README as Viam feature
 - Simple tilt-and-return pour for milestones; graceful arc motion is bonus round
 - Mock vision service allows alerting development before CV model is trained
-- Training mode tags images for dataset collection without acting on inference results 
+- Training mode tags images for dataset collection without acting on inference results
+- Position-saver switches (vmodutils) trigger arm movements; arm is explicit dependency for clarity in service dependency chain
+- `execute_cycle` moves: resting → pour_prep → pause (1s) → resting 
 
 ## Documentation
 
@@ -49,6 +51,7 @@ The README has a **target outline** (in product_spec.md) and a **backlog** (belo
 - Architecture diagram showing component relationships
 - Screenshots of Viam app configuration
 - Lesson 1 walkthrough content for Milestone 1
+- Lesson 2 walkthrough content for Milestone 2 (position-saver switches, arm as explicit dependency)
 
 
 ## Project Commands
@@ -56,13 +59,15 @@ The README has a **target outline** (in product_spec.md) and a **backlog** (belo
 ### Viam CLI
 - `viam machine part run --part <part_id> --method <method> --data '{}'` — run commands against the machine
 - `viam machine part run --part <part_id> --component <name> --method DoCommand --data '{}'` — call DoCommand on a component/service
+- `viam machine logs --machine <machine_id> --count 20 --keyword <filter>` — view machine logs (machine_id from machine.json)
 - `viam organizations list` — list orgs and their namespaces
 - Machine config stored in `machine.json`
 
 ### Development Commands
 - `go test ./...` — run all unit tests
 - `make module.tar.gz` — build packaged module
-- `viam module reload-local --part-id <part_id>` — hot-reload to robot
+- `make reload-module` — hot-reload module to robot (uses PART_ID from machine.json)
+- `make test-cycle` — trigger execute_cycle DoCommand via CLI
 
 ### Module Generation
 ```bash
@@ -96,7 +101,8 @@ Create a CLI tool/script to pull current machine config from Viam and store in r
 1. Write tests
 2. Run `test-scrutinizer` agent to review for quality and meaningful coverage
 3. Present tests to user for approval
-4. Implement feature
+4. Run tests and get user's sign-off
+5. Implement feature
 
 ### Before Committing
 The pre-commit hook (`.claude/hooks/pre-commit.md`) automates:

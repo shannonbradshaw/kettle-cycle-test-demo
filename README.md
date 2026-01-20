@@ -2,7 +2,7 @@
 
 A Viam robotics platform demo for appliance R&D labs, demonstrating cycle testing, failure detection, data capture, and alerting.
 
-> **Status:** Milestone 1 complete — module deployed and responding. See [product_spec.md](product_spec.md) for full roadmap.
+> **Status:** Milestone 2 complete — arm moves between saved positions on command. See [product_spec.md](product_spec.md) for full roadmap.
 
 ## What This Demo Does
 
@@ -53,6 +53,20 @@ In the Viam app, add a generic service to your machine:
 - **API:** `rdk:service:generic`
 - **Model:** `viamdemo:kettle-cycle-test:controller`
 
+**Configuration attributes:**
+```json
+{
+  "arm": "your-arm-name",
+  "resting_position": "resting-switch-name",
+  "pour_prep_position": "pour-prep-switch-name"
+}
+```
+
+All three fields are required:
+- `arm` - Name of the arm component (explicit dependency)
+- `resting_position` - Position-saver switch for the resting pose
+- `pour_prep_position` - Position-saver switch for the pour-prep pose
+
 ## Milestone 1: Foundation
 
 The module foundation is now in place:
@@ -78,17 +92,59 @@ The module foundation is now in place:
 - **Resource lifecycle** - constructor, DoCommand interface, Close method
 - **Hot reload** - rapid iteration with `viam module reload-local`
 
-**Next:** Milestone 2 will add arm control, moving between saved positions on command.
+**Next:** Milestone 3 will add data capture with tag-based correlation for cycle records.
+
+## Milestone 2: Arm Movement
+
+The controller now moves the arm between saved positions using position-saver switches.
+
+**What's Working:**
+- `execute_cycle` DoCommand moves arm through a test cycle
+- Sequence: resting → pour_prep → pause (1 second) → resting
+- Config validation ensures required dependencies (arm, switches) are present
+- Position-saver switches (from vmodutils module) trigger arm movements
+- Arm is an explicit dependency for clarity in the service dependency chain
+- Comprehensive unit tests for config validation and execute_cycle behavior
+- Makefile targets for hot-reload deployment and cycle testing
+
+**Key Implementation Details:**
+- `/Users/apr/Developer/kettle-cycle-test-demo/module.go` - Config struct with required fields, Validate method, handleExecuteCycle logic
+- `/Users/apr/Developer/kettle-cycle-test-demo/module_test.go` - Tests for config validation errors, successful cycle execution, error handling
+- `/Users/apr/Developer/kettle-cycle-test-demo/Makefile` - `reload-module` and `test-cycle` targets for development workflow
+
+**Viam Concepts Introduced:**
+- **Position-saver switches** - vmodutils module provides switches that trigger arm movements to saved positions
+- **Explicit dependencies** - arm declared in config.Validate() for clear dependency ordering
+- **Config validation** - Validate method returns required dependencies and validates user input
+- **DoCommand routing** - switch statement handles different commands (currently just "execute_cycle")
+
+**Testing the cycle:**
+```bash
+make reload-module  # Deploy to robot
+make test-cycle     # Trigger execute_cycle via CLI
+```
+
+Or manually via Viam CLI:
+```bash
+viam machine part run --part <part_id> \
+  --method 'viam.service.generic.v1.GenericService.DoCommand' \
+  --data '{"name": "cycle-tester", "command": {"command": "execute_cycle"}}'
+```
 
 ## Development
 
 ### Build and Deploy
 
 ```bash
-viam module reload-local --part-id <part_id from machine.json>
+make reload-module
 ```
 
-Builds for the target architecture, uploads, and restarts the module on the configured machine.
+Builds for the target architecture, uploads, and restarts the module on the configured machine. Uses PART_ID from `machine.json`.
+
+Alternatively, use the Viam CLI directly:
+```bash
+viam module reload-local --part-id <part_id from machine.json>
+```
 
 ### Run Tests
 

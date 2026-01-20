@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Milestone 2: Arm Movement Between Saved Positions
+
+**Added**
+- `execute_cycle` DoCommand that cycles arm between resting and pour-prep positions
+- Config validation for arm, resting_position, and pour_prep_position attributes
+- Position-saver switch integration for arm movement control
+- `make reload-module` target for hot-reload deployment to robot
+- `make test-cycle` target for triggering cycle tests via CLI
+- Cross-compilation support for Raspberry Pi (linux/arm64)
+
+**Fixed**
+- Makefile test-cycle target now uses correct gRPC method syntax for generic services
+
 ### Milestone 1: Module Foundation
 
 **Added**
