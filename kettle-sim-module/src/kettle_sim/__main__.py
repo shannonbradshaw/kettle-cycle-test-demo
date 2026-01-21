@@ -16,7 +16,7 @@ from viam.resource.registry import Registry, ResourceCreatorRegistration
 
 from .sim_arm import SimulatedArm, LITE6_MODEL
 from .sim_force_sensor import SimulatedForceSensor, FORCE_SENSOR_MODEL
-from .gazebo_manager import shutdown_global_manager
+from .mujoco_sim import shutdown_global_simulation
 
 # Configure logging
 logging.basicConfig(
@@ -55,7 +55,7 @@ def register_components() -> None:
 
 async def main() -> None:
     """Main entry point for the module."""
-    logger.info("Starting kettle-sim module...")
+    logger.info("Starting kettle-sim module (MuJoCo backend)...")
 
     # Register components
     register_components()
@@ -72,7 +72,7 @@ async def main() -> None:
     # Handle shutdown signals
     def signal_handler(sig, frame):
         logger.info("Received shutdown signal, cleaning up...")
-        shutdown_global_manager()
+        shutdown_global_simulation()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
@@ -82,7 +82,7 @@ async def main() -> None:
         await module.start()
     finally:
         logger.info("Module shutting down...")
-        shutdown_global_manager()
+        shutdown_global_simulation()
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """Tests for SimulatedForceSensor.
 
 These tests verify:
-- Capture state machine transitions (idle → waiting → active → idle)
+- Capture state machine transitions (idle -> waiting -> active -> idle)
 - Trial metadata handling (trial_id, cycle_count, should_sync)
 - Timeout handling
 - Sample buffer behavior
@@ -13,15 +13,16 @@ import time
 import threading
 
 from kettle_sim.sim_force_sensor import SimulatedForceSensor, CaptureState
-from kettle_sim.gazebo_bridge import MockGazeboBridge, WrenchData
+from kettle_sim.mujoco_sim import MockSimulation, WrenchData
 
 
 @pytest.fixture
 def sensor():
-    """Create a sensor with mock bridge for testing."""
+    """Create a sensor with mock simulation for testing."""
     s = SimulatedForceSensor("test-force-sensor")
-    # Manually set up for testing without Viam config
-    s._bridge = MockGazeboBridge()
+    # Create and start mock simulation
+    s._sim = MockSimulation()
+    s._sim.start()
     s._sample_rate_hz = 100  # Fast sampling for tests
     s._buffer_size = 10
     s._zero_threshold = 5.0
@@ -32,6 +33,7 @@ def sensor():
     s._sampling_thread.start()
     yield s
     s._cleanup()
+    s._sim.stop()
 
 
 class TestCaptureStateMachine:
@@ -61,7 +63,7 @@ class TestCaptureStateMachine:
         assert sensor._state == CaptureState.WAITING
 
         # Simulate force above threshold
-        sensor._bridge.set_wrench(WrenchData(force_z=10.0))
+        sensor._sim.set_wrench_data(WrenchData(fz=10.0))
 
         # Wait for sampling loop to process
         time.sleep(0.1)
@@ -139,7 +141,7 @@ class TestSampleBuffer:
     def test_samples_collected_during_active_capture(self, sensor):
         """Samples are collected when in active state."""
         sensor._handle_start_capture({})
-        sensor._bridge.set_wrench(WrenchData(force_z=10.0))
+        sensor._sim.set_wrench_data(WrenchData(fz=10.0))
 
         # Wait for samples to be collected
         time.sleep(0.15)
@@ -151,7 +153,7 @@ class TestSampleBuffer:
         """Buffer maintains max size by dropping oldest samples."""
         sensor._buffer_size = 5
         sensor._handle_start_capture({})
-        sensor._bridge.set_wrench(WrenchData(force_z=10.0))
+        sensor._sim.set_wrench_data(WrenchData(fz=10.0))
 
         # Wait for buffer to fill and roll
         time.sleep(0.2)
@@ -235,3 +237,33 @@ class TestDoCommand:
         """DoCommand raises error when command field missing."""
         with pytest.raises(ValueError, match="Missing 'command'"):
             await sensor.do_command({})
+
+
+class TestGetReadings:
+    """Tests for get_readings output."""
+
+    @pytest.mark.asyncio
+    async def test_readings_include_wrench_data(self, sensor):
+        """get_readings includes force/torque data."""
+        sensor._sim.set_wrench_data(WrenchData(fx=1.0, fy=2.0, fz=3.0, tx=0.1, ty=0.2, tz=0.3))
+
+        readings = await sensor.get_readings()
+
+        assert readings["fx"] == 1.0
+        assert readings["fy"] == 2.0
+        assert readings["fz"] == 3.0
+        assert readings["tx"] == 0.1
+        assert readings["ty"] == 0.2
+        assert readings["tz"] == 0.3
+
+    @pytest.mark.asyncio
+    async def test_readings_include_capture_state(self, sensor):
+        """get_readings includes capture state."""
+        readings = await sensor.get_readings()
+
+        assert readings["capture_state"] == "idle"
+
+        sensor._handle_start_capture({})
+        readings = await sensor.get_readings()
+
+        assert readings["capture_state"] == "waiting"

@@ -1,0 +1,35 @@
+# Kettle Cycle Test Simulation - Docker Compose
+#
+# Usage:
+#   docker-compose up --build
+#
+# For SSH tunnel deployment (security via SSH):
+#   docker-compose up --build
+#   # From client machine:
+#   ssh -L 3000:localhost:3000 -L 8080:localhost:8080 user@server
+#   # Then open http://localhost:3000
+
+services:
+  simulation:
+    build: .
+    container_name: kettle-sim
+    ports:
+      # Bind to localhost only for SSH tunnel deployment
+      # Change to "8080:8080" for direct access (less secure)
+      - "127.0.0.1:8080:8080"  # viam-server gRPC/WebRTC
+      - "127.0.0.1:3000:3000"  # Web UI
+    environment:
+      # MuJoCo settings
+      - MUJOCO_GL=osmesa  # Use software rendering in container
+    # volumes:
+      # Optional: Mount custom model files
+      # - ./models:/app/models:ro
+      # Optional: Mount custom config
+      # - ./docker/machine-config.json:/etc/viam/machine-config.json:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

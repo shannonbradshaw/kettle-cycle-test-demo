@@ -1,7 +1,7 @@
-"""Simulated force sensor component using Gazebo.
+"""Simulated force sensor component using MuJoCo.
 
 This module provides a Viam sensor component that reads force/torque
-data from a simulated sensor in Gazebo. It mirrors the capture state
+data from a simulated sensor in MuJoCo. It mirrors the capture state
 machine pattern from the Go implementation (force_sensor.go).
 """
 
@@ -19,13 +19,11 @@ from viam.resource.base import ResourceBase
 from viam.resource.registry import Registry, ResourceCreatorRegistration
 from viam.resource.types import Model, ModelFamily
 
-from .gazebo_bridge import (
-    GazeboBridge,
-    GazeboBridgeInterface,
-    MockGazeboBridge,
+from .mujoco_sim import (
+    SimulationInterface,
     WrenchData,
+    get_global_simulation,
 )
-from .gazebo_manager import get_global_manager
 
 logger = getLogger(__name__)
 
@@ -41,17 +39,15 @@ class CaptureState(Enum):
 
 
 class SimulatedForceSensor(Sensor):
-    """Simulated force/torque sensor using Gazebo.
+    """Simulated force/torque sensor using MuJoCo.
 
     This component implements the Viam sensor interface by reading
-    force/torque data from a simulated sensor in Gazebo. It includes
+    force/torque data from a simulated sensor in MuJoCo. It includes
     a capture state machine matching the Go implementation.
 
     Configuration attributes:
-        world_name: Name of the Gazebo world (default: "kettle_world")
-        model_name: Name of the robot model (default: "lite6")
-        force_sensor_link: Link containing the F/T sensor (default: "link6")
-        use_mock: Use mock bridge without Gazebo (default: false)
+        model_path: Path to MJCF model file (optional, uses default if not set)
+        use_mock: Use mock simulation without MuJoCo (default: false)
         sample_rate_hz: Sampling rate during capture (default: 50)
         buffer_size: Maximum samples to store (default: 100)
         zero_threshold: Force below this is "zero" (default: 5.0)
@@ -63,7 +59,7 @@ class SimulatedForceSensor(Sensor):
     def __init__(self, name: str):
         """Initialize the simulated force sensor."""
         super().__init__(name)
-        self._bridge: Optional[GazeboBridgeInterface] = None
+        self._sim: Optional[SimulationInterface] = None
         self._lock = threading.Lock()
         self._running = False
 
@@ -106,9 +102,7 @@ class SimulatedForceSensor(Sensor):
         attrs = config.attributes.fields if config.attributes else {}
 
         # Extract configuration
-        world_name = attrs.get("world_name", {}).string_value or "kettle_world"
-        model_name = attrs.get("model_name", {}).string_value or "lite6"
-        force_sensor_link = attrs.get("force_sensor_link", {}).string_value or "link6"
+        model_path = attrs.get("model_path", {}).string_value or None
         use_mock = attrs.get("use_mock", {}).bool_value or False
 
         # Sampling configuration
@@ -125,25 +119,16 @@ class SimulatedForceSensor(Sensor):
         self._capture_timeout = (capture_timeout / 1000.0) if capture_timeout else 10.0
 
         logger.info(
-            f"Configuring SimulatedForceSensor: world={world_name}, "
-            f"model={model_name}, link={force_sensor_link}, use_mock={use_mock}"
+            f"Configuring SimulatedForceSensor: model_path={model_path}, "
+            f"use_mock={use_mock}"
         )
 
         # Clean up existing resources
         self._cleanup()
 
-        if use_mock:
-            self._bridge = MockGazeboBridge()
-            logger.info("Using mock Gazebo bridge")
-        else:
-            # Use existing bridge from global manager context
-            # or create new one
-            self._bridge = GazeboBridge(
-                world_name=world_name,
-                model_name=model_name,
-                force_sensor_link=force_sensor_link,
-            )
-            logger.info("Connected to Gazebo force sensor")
+        # Get or create global simulation instance
+        self._sim = get_global_simulation(use_mock=use_mock, model_path=model_path)
+        logger.info("Connected to MuJoCo force sensor")
 
         # Start sampling thread
         self._running = True
@@ -168,10 +153,7 @@ class SimulatedForceSensor(Sensor):
             self._timeout_timer.cancel()
             self._timeout_timer = None
 
-        # Close bridge
-        if self._bridge is not None:
-            self._bridge.close()
-            self._bridge = None
+        # Don't stop global simulation here - other components may be using it
 
     def _sampling_loop(self) -> None:
         """Background loop for sampling force data."""
@@ -194,11 +176,11 @@ class SimulatedForceSensor(Sensor):
 
     def _sample_force(self) -> None:
         """Sample force reading and update state machine."""
-        if self._bridge is None:
+        if self._sim is None:
             return
 
-        wrench = self._bridge.get_wrench()
-        force_z = abs(wrench.force_z)
+        wrench = self._sim.get_wrench_data()
+        force_z = abs(wrench.fz)
 
         with self._lock:
             if self._state == CaptureState.WAITING and force_z >= self._zero_threshold:
@@ -251,14 +233,14 @@ class SimulatedForceSensor(Sensor):
             result["max_force"] = max(samples_copy)
 
         # Also include current instantaneous force reading
-        if self._bridge is not None:
-            wrench = self._bridge.get_wrench()
-            result["force_z"] = wrench.force_z
-            result["force_x"] = wrench.force_x
-            result["force_y"] = wrench.force_y
-            result["torque_x"] = wrench.torque_x
-            result["torque_y"] = wrench.torque_y
-            result["torque_z"] = wrench.torque_z
+        if self._sim is not None:
+            wrench = self._sim.get_wrench_data()
+            result["fx"] = wrench.fx
+            result["fy"] = wrench.fy
+            result["fz"] = wrench.fz
+            result["tx"] = wrench.tx
+            result["ty"] = wrench.ty
+            result["tz"] = wrench.tz
 
         return result
 

@@ -1,7 +1,7 @@
-"""Simulated arm component using Gazebo.
+"""Simulated arm component using MuJoCo.
 
 This module provides a Viam arm component that controls a simulated
-Lite6 robot arm in Gazebo.
+Lite6 robot arm using MuJoCo physics.
 """
 
 import asyncio
@@ -18,18 +18,10 @@ from viam.resource.base import ResourceBase
 from viam.resource.registry import Registry, ResourceCreatorRegistration
 from viam.resource.types import Model, ModelFamily
 
-from .gazebo_bridge import (
-    GazeboBridge,
-    GazeboBridgeInterface,
-    MockGazeboBridge,
-    LITE6_JOINT_NAMES,
-)
-from .gazebo_manager import (
-    GazeboConfig,
-    GazeboManager,
-    GazeboMode,
-    get_global_manager,
-    set_global_manager,
+from .mujoco_sim import (
+    JOINT_NAMES,
+    SimulationInterface,
+    get_global_simulation,
 )
 
 logger = getLogger(__name__)
@@ -39,17 +31,14 @@ LITE6_MODEL = Model(ModelFamily("viamdemo", "kettle-sim"), "lite6")
 
 
 class SimulatedArm(Arm):
-    """Simulated Lite6 arm using Gazebo physics.
+    """Simulated Lite6 arm using MuJoCo physics.
 
     This component implements the Viam arm interface by controlling
-    a simulated robot arm in Gazebo via gz-transport.
+    a simulated robot arm using MuJoCo.
 
     Configuration attributes:
-        world_name: Name of the Gazebo world (default: "kettle_world")
-        model_name: Name of the robot model in Gazebo (default: "lite6")
-        use_mock: Use mock bridge without Gazebo (default: false)
-        gazebo_mode: "headless", "gui", or "external" (default: "headless")
-        world_file: Path to world SDF file (optional, uses default if not set)
+        model_path: Path to MJCF model file (optional, uses default if not set)
+        use_mock: Use mock simulation without MuJoCo (default: false)
     """
 
     MODEL: ClassVar[Model] = LITE6_MODEL
@@ -67,9 +56,8 @@ class SimulatedArm(Arm):
     def __init__(self, name: str):
         """Initialize the simulated arm."""
         super().__init__(name)
-        self._bridge: Optional[GazeboBridgeInterface] = None
-        self._manager: Optional[GazeboManager] = None
-        self._joint_names = LITE6_JOINT_NAMES
+        self._sim: Optional[SimulationInterface] = None
+        self._joint_names = JOINT_NAMES
         self._target_positions: Dict[str, float] = {}
         self._lock = threading.Lock()
         self._position_tolerance = 0.05  # radians
@@ -98,58 +86,16 @@ class SimulatedArm(Arm):
         attrs = config.attributes.fields if config.attributes else {}
 
         # Extract configuration
-        world_name = attrs.get("world_name", {}).string_value or "kettle_world"
-        model_name = attrs.get("model_name", {}).string_value or "lite6"
+        model_path = attrs.get("model_path", {}).string_value or None
         use_mock = attrs.get("use_mock", {}).bool_value or False
-        gazebo_mode_str = attrs.get("gazebo_mode", {}).string_value or "headless"
-        world_file = attrs.get("world_file", {}).string_value or ""
 
         logger.info(
-            f"Configuring SimulatedArm: world={world_name}, model={model_name}, "
-            f"use_mock={use_mock}, mode={gazebo_mode_str}"
+            f"Configuring SimulatedArm: model_path={model_path}, use_mock={use_mock}"
         )
 
-        # Clean up existing resources
-        self._cleanup()
-
-        if use_mock:
-            # Use mock bridge for testing without Gazebo
-            self._bridge = MockGazeboBridge(self._joint_names)
-            logger.info("Using mock Gazebo bridge")
-        else:
-            # Start or connect to Gazebo
-            gazebo_mode = GazeboMode(gazebo_mode_str)
-
-            # Use global manager if available, otherwise create new one
-            manager = get_global_manager()
-            if manager is None:
-                if not world_file:
-                    world_file = str(GazeboManager.get_default_world_path())
-
-                gz_config = GazeboConfig(
-                    world_file=world_file,
-                    mode=gazebo_mode,
-                )
-                manager = GazeboManager(gz_config)
-                manager.start()
-                set_global_manager(manager)
-                self._manager = manager  # Track for cleanup
-
-            # Create bridge to Gazebo
-            self._bridge = GazeboBridge(
-                world_name=world_name,
-                model_name=model_name,
-                joint_names=self._joint_names,
-            )
-            logger.info(f"Connected to Gazebo simulation")
-
-    def _cleanup(self) -> None:
-        """Clean up resources."""
-        if self._bridge is not None:
-            self._bridge.close()
-            self._bridge = None
-
-        # Don't stop global manager here - other components may be using it
+        # Get or create global simulation instance
+        self._sim = get_global_simulation(use_mock=use_mock, model_path=model_path)
+        logger.info("Connected to MuJoCo simulation")
 
     async def get_end_position(
         self,
@@ -190,11 +136,13 @@ class SimulatedArm(Arm):
         **kwargs,
     ) -> JointPositions:
         """Get current joint positions."""
-        if self._bridge is None:
+        if self._sim is None:
             raise RuntimeError("Arm not initialized")
 
-        state = self._bridge.get_joint_state()
-        positions = state.get_position_list(self._joint_names)
+        state = self._sim.get_joint_state()
+
+        # Get positions in order
+        positions = [state.positions.get(name, 0.0) for name in self._joint_names]
 
         # Convert to degrees for Viam API
         positions_deg = [math.degrees(p) for p in positions]
@@ -212,7 +160,7 @@ class SimulatedArm(Arm):
         Args:
             positions: Target joint positions in degrees
         """
-        if self._bridge is None:
+        if self._sim is None:
             raise RuntimeError("Arm not initialized")
 
         if len(positions.values) != len(self._joint_names):
@@ -241,8 +189,8 @@ class SimulatedArm(Arm):
         with self._lock:
             self._target_positions = target_rad.copy()
 
-        # Send command to Gazebo
-        self._bridge.set_joint_positions(target_rad)
+        # Send command to simulation
+        self._sim.set_joint_targets(target_rad)
 
         # Wait for movement to complete
         await self._wait_for_position(target_rad)
@@ -264,7 +212,7 @@ class SimulatedArm(Arm):
         start_time = time.time()
 
         while time.time() - start_time < timeout:
-            state = self._bridge.get_joint_state()
+            state = self._sim.get_joint_state()
 
             # Check if all joints are at target
             all_at_target = True
@@ -285,10 +233,10 @@ class SimulatedArm(Arm):
 
     async def is_moving(self, **kwargs) -> bool:
         """Check if the arm is currently moving."""
-        if self._bridge is None:
+        if self._sim is None:
             return False
 
-        state = self._bridge.get_joint_state()
+        state = self._sim.get_joint_state()
 
         # Check if any joint has significant velocity
         velocity_threshold = 0.01  # rad/s
@@ -309,12 +257,12 @@ class SimulatedArm(Arm):
 
     async def stop(self, extra: Optional[Mapping[str, Any]] = None, **kwargs) -> None:
         """Stop the arm immediately."""
-        if self._bridge is None:
+        if self._sim is None:
             return
 
         # Command current position to stop motion
-        state = self._bridge.get_joint_state()
-        self._bridge.set_joint_positions(state.positions)
+        state = self._sim.get_joint_state()
+        self._sim.set_joint_targets(state.positions)
 
         with self._lock:
             self._target_positions = {}
@@ -341,7 +289,8 @@ class SimulatedArm(Arm):
 
     async def close(self) -> None:
         """Clean up resources when component is closed."""
-        self._cleanup()
+        # Don't stop global simulation here - other components may be using it
+        pass
 
 
 # Register the component with Viam

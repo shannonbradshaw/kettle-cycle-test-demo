@@ -1,9 +1,8 @@
 # Viam SDK
 viam-sdk>=0.20.0
 
-# Gazebo transport bindings (Harmonic)
-# Note: gz-transport14 and gz-msgs11 are installed via system packages
-# These Python bindings require Gazebo Harmonic to be installed
+# MuJoCo physics engine
+mujoco>=3.0.0
 
 # Development dependencies
 pytest>=7.0

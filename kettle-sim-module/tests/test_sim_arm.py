@@ -1,7 +1,7 @@
 """Tests for SimulatedArm.
 
 These tests verify:
-- Joint position retrieval and conversion (rad ↔ deg)
+- Joint position retrieval and conversion (rad <-> deg)
 - Joint limit validation
 - is_moving detection based on velocity and target distance
 - Stop behavior
@@ -13,19 +13,21 @@ import math
 
 from viam.components.arm import JointPositions
 
-from kettle_sim.sim_arm import SimulatedArm, LITE6_JOINT_NAMES
-from kettle_sim.gazebo_bridge import MockGazeboBridge
+from kettle_sim.sim_arm import SimulatedArm
+from kettle_sim.mujoco_sim import MockSimulation, JOINT_NAMES
 
 
 @pytest.fixture
 def arm():
-    """Create an arm with mock bridge for testing."""
+    """Create an arm with mock simulation for testing."""
     a = SimulatedArm("test-arm")
-    a._bridge = MockGazeboBridge()
-    a._joint_names = LITE6_JOINT_NAMES
+    a._sim = MockSimulation()
+    a._sim.start()
+    a._joint_names = JOINT_NAMES
     a._position_tolerance = 0.05
     a._move_timeout = 5.0
     yield a
+    a._sim.stop()
 
 
 class TestJointPositionRetrieval:
@@ -35,10 +37,14 @@ class TestJointPositionRetrieval:
     async def test_get_joint_positions_returns_degrees(self, arm):
         """get_joint_positions returns positions in degrees."""
         # Set positions in radians via mock
-        arm._bridge.set_positions_immediately({
+        arm._sim.set_joint_targets({
             "joint1": math.pi / 2,  # 90 degrees
             "joint2": math.pi / 4,  # 45 degrees
         })
+        # Manually set positions for test (skip motion simulation)
+        with arm._sim._lock:
+            arm._sim._positions["joint1"] = math.pi / 2
+            arm._sim._positions["joint2"] = math.pi / 4
 
         positions = await arm.get_joint_positions()
 
@@ -59,6 +65,8 @@ class TestJointLimitValidation:
     @pytest.mark.asyncio
     async def test_position_within_limits_accepted(self, arm):
         """Positions within limits are accepted."""
+        # Use fast motion for test
+        arm._sim._velocity = 100.0
         # Joint1 limits: -360 to 360 degrees
         positions = JointPositions(values=[90, 0, 45, 0, 0, 0])
 
@@ -99,7 +107,9 @@ class TestIsMoving:
     async def test_is_moving_false_when_at_target(self, arm):
         """is_moving returns False when at target position."""
         # Set position and target to same value
-        arm._bridge.set_positions_immediately({"joint1": 0.5})
+        with arm._sim._lock:
+            arm._sim._positions["joint1"] = 0.5
+            arm._sim._targets["joint1"] = 0.5
 
         result = await arm.is_moving()
 
@@ -109,11 +119,11 @@ class TestIsMoving:
     async def test_is_moving_true_when_velocity_nonzero(self, arm):
         """is_moving returns True when velocity is significant."""
         # Set a target far from current position
-        arm._bridge.set_joint_positions({"joint1": 2.0})
+        arm._sim.set_joint_targets({"joint1": 2.0})
         arm._target_positions = {"joint1": 2.0}
 
-        # Get state to trigger motion simulation
-        arm._bridge.get_joint_state()
+        # Give time for motion to start
+        await asyncio.sleep(0.05)
 
         result = await arm.is_moving()
 
@@ -122,7 +132,8 @@ class TestIsMoving:
     @pytest.mark.asyncio
     async def test_is_moving_true_when_not_at_target(self, arm):
         """is_moving returns True when position differs from target."""
-        arm._bridge.set_positions_immediately({"joint1": 0.0})
+        with arm._sim._lock:
+            arm._sim._positions["joint1"] = 0.0
         arm._target_positions = {"joint1": 1.0}  # Target differs
 
         result = await arm.is_moving()
@@ -145,12 +156,13 @@ class TestStop:
     @pytest.mark.asyncio
     async def test_stop_commands_current_position(self, arm):
         """stop commands joints to hold current position."""
-        arm._bridge.set_positions_immediately({"joint1": 0.5})
+        with arm._sim._lock:
+            arm._sim._positions["joint1"] = 0.5
 
         await arm.stop()
 
         # After stop, target should match current
-        state = arm._bridge.get_joint_state()
+        state = arm._sim.get_joint_state()
         assert state.positions["joint1"] == 0.5
 
 
@@ -161,7 +173,7 @@ class TestMoveToJointPositions:
     async def test_move_stores_target_positions(self, arm):
         """move_to_joint_positions stores targets for is_moving check."""
         # Use fast motion for test
-        arm._bridge._velocity = 100.0
+        arm._sim._velocity = 100.0
         positions = JointPositions(values=[10, 0, 0, 0, 0, 0])
 
         await arm.move_to_joint_positions(positions)
@@ -174,7 +186,7 @@ class TestMoveToJointPositions:
     async def test_move_timeout_raises_error(self, arm):
         """move_to_joint_positions raises TimeoutError if target not reached."""
         arm._move_timeout = 0.1  # Very short timeout
-        arm._bridge._velocity = 0.001  # Very slow motion
+        arm._sim._velocity = 0.001  # Very slow motion
 
         positions = JointPositions(values=[180, 0, 0, 0, 0, 0])
 
@@ -186,17 +198,17 @@ class TestArmNotInitialized:
     """Tests for error handling when arm not initialized."""
 
     @pytest.mark.asyncio
-    async def test_get_positions_without_bridge_errors(self):
-        """get_joint_positions raises error without bridge."""
+    async def test_get_positions_without_sim_errors(self):
+        """get_joint_positions raises error without simulation."""
         arm = SimulatedArm("test")
-        # Don't set bridge
+        # Don't set simulation
 
         with pytest.raises(RuntimeError, match="not initialized"):
             await arm.get_joint_positions()
 
     @pytest.mark.asyncio
-    async def test_move_without_bridge_errors(self):
-        """move_to_joint_positions raises error without bridge."""
+    async def test_move_without_sim_errors(self):
+        """move_to_joint_positions raises error without simulation."""
         arm = SimulatedArm("test")
 
         with pytest.raises(RuntimeError, match="not initialized"):

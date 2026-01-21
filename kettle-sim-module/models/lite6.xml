@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Lite6 Robot Arm - MuJoCo MJCF Model
+
+  This is a simplified model using cylinders matching the Gazebo SDF version.
+  For production use, convert meshes from xarm_ros:
+  https://github.com/xArm-Developer/xarm_ros/blob/master/xarm_description/urdf/lite6/lite6_robot_macro.xacro
+-->
+<mujoco model="lite6">
+  <compiler angle="radian" coordinate="local" inertiafromgeom="auto"/>
+
+  <option timestep="0.001" gravity="0 0 -9.81" integrator="implicit">
+    <flag warmstart="enable"/>
+  </option>
+
+  <default>
+    <joint armature="0.01" damping="0.5" limited="true"/>
+    <geom condim="3" friction="1 0.5 0.5" rgba="0.9 0.9 0.9 1"/>
+    <position kp="100" kv="10"/>
+  </default>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.6 0.6 0.8" rgb2="0.2 0.2 0.3" width="512" height="512"/>
+    <texture name="floor_tex" type="2d" builtin="checker" rgb1="0.8 0.8 0.8" rgb2="0.6 0.6 0.6" width="512" height="512"/>
+    <material name="floor_mat" texture="floor_tex" texrepeat="10 10"/>
+    <material name="base_mat" rgba="0.3 0.3 0.3 1"/>
+    <material name="link_mat" rgba="1.0 1.0 1.0 1"/>
+    <material name="end_mat" rgba="0.4 0.4 0.4 1"/>
+    <material name="table_mat" rgba="0.7 0.5 0.3 1"/>
+  </asset>
+
+  <worldbody>
+    <!-- Ground plane -->
+    <geom name="floor" type="plane" size="5 5 0.1" material="floor_mat"/>
+
+    <!-- Lite6 Robot Arm -->
+    <body name="base_link" pos="0 0 0.025">
+      <geom name="base_geom" type="cylinder" size="0.06 0.025" material="base_mat" mass="2.0"/>
+
+      <!-- Link 1 - rotates around Z -->
+      <body name="link1" pos="0 0 0.025">
+        <joint name="joint1" type="hinge" axis="0 0 1" range="-6.2832 6.2832" damping="0.5"/>
+        <geom name="link1_geom" type="cylinder" size="0.05 0.0615" pos="0 0 0.0615" material="link_mat" mass="1.5"/>
+
+        <!-- Link 2 - rotates around Y -->
+        <body name="link2" pos="0 0 0.123">
+          <joint name="joint2" type="hinge" axis="0 1 0" range="-2.059 2.094" damping="0.5"/>
+          <geom name="link2_geom" type="cylinder" size="0.04 0.1" pos="0 0 0.1" material="link_mat" mass="1.2"/>
+
+          <!-- Link 3 - rotates around Y -->
+          <body name="link3" pos="0 0 0.2">
+            <joint name="joint3" type="hinge" axis="0 1 0" range="-0.192 3.927" damping="0.3"/>
+            <geom name="link3_geom" type="cylinder" size="0.035 0.045" pos="0 0 0.045" material="link_mat" mass="0.8"/>
+
+            <!-- Link 4 - rotates around Z -->
+            <body name="link4" pos="0 0 0.09">
+              <joint name="joint4" type="hinge" axis="0 0 1" range="-6.2832 6.2832" damping="0.2"/>
+              <geom name="link4_geom" type="cylinder" size="0.03 0.075" pos="0 0 0.075" material="link_mat" mass="0.6"/>
+
+              <!-- Link 5 - rotates around Y -->
+              <body name="link5" pos="0 0 0.15">
+                <joint name="joint5" type="hinge" axis="0 1 0" range="-1.692 3.141" damping="0.2"/>
+                <geom name="link5_geom" type="cylinder" size="0.025 0.04" pos="0 0 0.04" material="link_mat" mass="0.4"/>
+
+                <!-- Link 6 (end effector) - rotates around Z -->
+                <body name="link6" pos="0 0 0.08">
+                  <joint name="joint6" type="hinge" axis="0 0 1" range="-6.2832 6.2832" damping="0.1"/>
+                  <geom name="link6_geom" type="cylinder" size="0.025 0.03" pos="0 0 0.03" material="end_mat" mass="0.2"/>
+
+                  <!-- Force/torque sensor site at end effector -->
+                  <site name="ft_sensor" pos="0 0 0.06" size="0.01"/>
+
+                  <!-- End effector site for visualization -->
+                  <site name="end_effector" pos="0 0 0.06" size="0.015" rgba="1 0 0 0.5"/>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- Table (work surface) -->
+    <body name="table" pos="0.4 0 0.35">
+      <geom name="table_geom" type="box" size="0.3 0.4 0.01" material="table_mat"/>
+    </body>
+
+    <!-- Light -->
+    <light name="spotlight" pos="0 0 3" dir="0 0 -1" diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2"/>
+  </worldbody>
+
+  <!-- Actuators for position control -->
+  <actuator>
+    <position name="joint1_ctrl" joint="joint1" kp="100" kv="10" ctrlrange="-6.2832 6.2832"/>
+    <position name="joint2_ctrl" joint="joint2" kp="100" kv="10" ctrlrange="-2.059 2.094"/>
+    <position name="joint3_ctrl" joint="joint3" kp="80" kv="8" ctrlrange="-0.192 3.927"/>
+    <position name="joint4_ctrl" joint="joint4" kp="50" kv="5" ctrlrange="-6.2832 6.2832"/>
+    <position name="joint5_ctrl" joint="joint5" kp="40" kv="4" ctrlrange="-1.692 3.141"/>
+    <position name="joint6_ctrl" joint="joint6" kp="30" kv="3" ctrlrange="-6.2832 6.2832"/>
+  </actuator>
+
+  <!-- Sensors -->
+  <sensor>
+    <!-- Force/torque sensor at end effector -->
+    <force name="ft_force" site="ft_sensor"/>
+    <torque name="ft_torque" site="ft_sensor"/>
+
+    <!-- Joint position sensors -->
+    <jointpos name="joint1_pos" joint="joint1"/>
+    <jointpos name="joint2_pos" joint="joint2"/>
+    <jointpos name="joint3_pos" joint="joint3"/>
+    <jointpos name="joint4_pos" joint="joint4"/>
+    <jointpos name="joint5_pos" joint="joint5"/>
+    <jointpos name="joint6_pos" joint="joint6"/>
+
+    <!-- Joint velocity sensors -->
+    <jointvel name="joint1_vel" joint="joint1"/>
+    <jointvel name="joint2_vel" joint="joint2"/>
+    <jointvel name="joint3_vel" joint="joint3"/>
+    <jointvel name="joint4_vel" joint="joint4"/>
+    <jointvel name="joint5_vel" joint="joint5"/>
+    <jointvel name="joint6_vel" joint="joint6"/>
+  </sensor>
+</mujoco>
