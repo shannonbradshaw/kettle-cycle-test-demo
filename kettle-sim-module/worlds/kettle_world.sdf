@@ -1,0 +1,579 @@
+<?xml version="1.0" ?>
+<!--
+  Kettle World - Gazebo Harmonic simulation world for kettle cycle testing
+
+  This world contains:
+  - Lite6 robot arm with joint position controllers
+  - Force/torque sensor on wrist joint
+  - Ground plane and basic lighting
+
+  Note: The Lite6 model uses simplified geometric shapes. For visual accuracy,
+  replace with meshes from xarm_ros: xarm_description/meshes/lite6/visual/
+-->
+<sdf version="1.9">
+  <world name="kettle_world">
+    <!-- Physics settings -->
+    <physics name="default_physics" type="dart">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
+    <!-- Plugins -->
+    <plugin
+      filename="gz-sim-physics-system"
+      name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin
+      filename="gz-sim-scene-broadcaster-system"
+      name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin
+      filename="gz-sim-user-commands-system"
+      name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin
+      filename="gz-sim-sensors-system"
+      name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin
+      filename="gz-sim-forcetorque-system"
+      name="gz::sim::systems::ForceTorque">
+    </plugin>
+
+    <!-- Lighting -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground plane -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Lite6 Robot Arm -->
+    <!--
+      This is a simplified model using cylinders and boxes.
+      For production use, convert the xarm_ros URDF:
+      https://github.com/xArm-Developer/xarm_ros/blob/master/xarm_description/urdf/lite6/lite6_robot_macro.xacro
+    -->
+    <model name="lite6">
+      <pose>0 0 0 0 0 0</pose>
+
+      <!-- Base link (fixed to ground) -->
+      <link name="base_link">
+        <inertial>
+          <mass>2.0</mass>
+          <inertia>
+            <ixx>0.01</ixx>
+            <iyy>0.01</iyy>
+            <izz>0.01</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.06</radius>
+              <length>0.05</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.06</radius>
+              <length>0.05</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.2 0.2 0.2 1</ambient>
+            <diffuse>0.3 0.3 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <!-- Link 1 -->
+      <link name="link1">
+        <pose relative_to="joint1">0 0 0.0615 0 0 0</pose>
+        <inertial>
+          <mass>1.5</mass>
+          <inertia>
+            <ixx>0.005</ixx>
+            <iyy>0.005</iyy>
+            <izz>0.003</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.05</radius>
+              <length>0.123</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.05</radius>
+              <length>0.123</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>1.0 1.0 1.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <joint name="joint1" type="revolute">
+        <parent>base_link</parent>
+        <child>link1</child>
+        <pose relative_to="base_link">0 0 0.025 0 0 0</pose>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-6.2832</lower>
+            <upper>6.2832</upper>
+            <effort>50</effort>
+            <velocity>3.14</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.5</damping>
+            <friction>0.1</friction>
+          </dynamics>
+        </axis>
+      </joint>
+
+      <!-- Link 2 -->
+      <link name="link2">
+        <pose relative_to="joint2">0 0 0.1 0 0 0</pose>
+        <inertial>
+          <mass>1.2</mass>
+          <inertia>
+            <ixx>0.008</ixx>
+            <iyy>0.008</iyy>
+            <izz>0.002</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.04</radius>
+              <length>0.2</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.04</radius>
+              <length>0.2</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>1.0 1.0 1.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <joint name="joint2" type="revolute">
+        <parent>link1</parent>
+        <child>link2</child>
+        <pose relative_to="link1">0 0 0.0615 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-2.059</lower>
+            <upper>2.094</upper>
+            <effort>50</effort>
+            <velocity>3.14</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.5</damping>
+            <friction>0.1</friction>
+          </dynamics>
+        </axis>
+      </joint>
+
+      <!-- Link 3 -->
+      <link name="link3">
+        <pose relative_to="joint3">0 0 0.045 0 0 0</pose>
+        <inertial>
+          <mass>0.8</mass>
+          <inertia>
+            <ixx>0.002</ixx>
+            <iyy>0.002</iyy>
+            <izz>0.001</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.035</radius>
+              <length>0.09</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.035</radius>
+              <length>0.09</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>1.0 1.0 1.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <joint name="joint3" type="revolute">
+        <parent>link2</parent>
+        <child>link3</child>
+        <pose relative_to="link2">0 0 0.1 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-0.192</lower>
+            <upper>3.927</upper>
+            <effort>30</effort>
+            <velocity>3.14</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.3</damping>
+            <friction>0.1</friction>
+          </dynamics>
+        </axis>
+      </joint>
+
+      <!-- Link 4 -->
+      <link name="link4">
+        <pose relative_to="joint4">0 0 0.075 0 0 0</pose>
+        <inertial>
+          <mass>0.6</mass>
+          <inertia>
+            <ixx>0.002</ixx>
+            <iyy>0.002</iyy>
+            <izz>0.0008</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.15</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.03</radius>
+              <length>0.15</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>1.0 1.0 1.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <joint name="joint4" type="revolute">
+        <parent>link3</parent>
+        <child>link4</child>
+        <pose relative_to="link3">0 0 0.045 0 0 0</pose>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-6.2832</lower>
+            <upper>6.2832</upper>
+            <effort>20</effort>
+            <velocity>3.14</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.2</damping>
+            <friction>0.1</friction>
+          </dynamics>
+        </axis>
+      </joint>
+
+      <!-- Link 5 -->
+      <link name="link5">
+        <pose relative_to="joint5">0 0 0.04 0 0 0</pose>
+        <inertial>
+          <mass>0.4</mass>
+          <inertia>
+            <ixx>0.0008</ixx>
+            <iyy>0.0008</iyy>
+            <izz>0.0004</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.025</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.025</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>1.0 1.0 1.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+
+      <joint name="joint5" type="revolute">
+        <parent>link4</parent>
+        <child>link5</child>
+        <pose relative_to="link4">0 0 0.075 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-1.692</lower>
+            <upper>3.141</upper>
+            <effort>15</effort>
+            <velocity>3.14</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.2</damping>
+            <friction>0.1</friction>
+          </dynamics>
+        </axis>
+      </joint>
+
+      <!-- Link 6 (end effector with force sensor) -->
+      <link name="link6">
+        <pose relative_to="joint6">0 0 0.03 0 0 0</pose>
+        <inertial>
+          <mass>0.2</mass>
+          <inertia>
+            <ixx>0.0002</ixx>
+            <iyy>0.0002</iyy>
+            <izz>0.0002</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.025</radius>
+              <length>0.06</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.025</radius>
+              <length>0.06</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1</ambient>
+            <diffuse>0.4 0.4 0.4 1</diffuse>
+          </material>
+        </visual>
+        <!-- Force/Torque Sensor -->
+        <sensor name="force_torque" type="force_torque">
+          <always_on>true</always_on>
+          <update_rate>100</update_rate>
+          <visualize>true</visualize>
+          <force_torque>
+            <frame>child</frame>
+            <measure_direction>child_to_parent</measure_direction>
+          </force_torque>
+        </sensor>
+      </link>
+
+      <joint name="joint6" type="revolute">
+        <parent>link5</parent>
+        <child>link6</child>
+        <pose relative_to="link5">0 0 0.04 0 0 0</pose>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-6.2832</lower>
+            <upper>6.2832</upper>
+            <effort>10</effort>
+            <velocity>3.14</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.1</damping>
+            <friction>0.05</friction>
+          </dynamics>
+        </axis>
+        <!-- Attach force/torque sensor to this joint -->
+        <sensor name="force_torque_joint" type="force_torque">
+          <always_on>true</always_on>
+          <update_rate>100</update_rate>
+          <visualize>false</visualize>
+          <force_torque>
+            <frame>child</frame>
+            <measure_direction>child_to_parent</measure_direction>
+          </force_torque>
+        </sensor>
+      </joint>
+
+      <!-- Joint Position Controllers -->
+      <plugin
+        filename="gz-sim-joint-position-controller-system"
+        name="gz::sim::systems::JointPositionController">
+        <joint_name>joint1</joint_name>
+        <topic>/model/lite6/joint/joint1/0/cmd_pos</topic>
+        <p_gain>100</p_gain>
+        <i_gain>0.1</i_gain>
+        <d_gain>10</d_gain>
+        <i_max>1</i_max>
+        <i_min>-1</i_min>
+        <cmd_max>50</cmd_max>
+        <cmd_min>-50</cmd_min>
+      </plugin>
+
+      <plugin
+        filename="gz-sim-joint-position-controller-system"
+        name="gz::sim::systems::JointPositionController">
+        <joint_name>joint2</joint_name>
+        <topic>/model/lite6/joint/joint2/0/cmd_pos</topic>
+        <p_gain>100</p_gain>
+        <i_gain>0.1</i_gain>
+        <d_gain>10</d_gain>
+        <i_max>1</i_max>
+        <i_min>-1</i_min>
+        <cmd_max>50</cmd_max>
+        <cmd_min>-50</cmd_min>
+      </plugin>
+
+      <plugin
+        filename="gz-sim-joint-position-controller-system"
+        name="gz::sim::systems::JointPositionController">
+        <joint_name>joint3</joint_name>
+        <topic>/model/lite6/joint/joint3/0/cmd_pos</topic>
+        <p_gain>80</p_gain>
+        <i_gain>0.1</i_gain>
+        <d_gain>8</d_gain>
+        <i_max>1</i_max>
+        <i_min>-1</i_min>
+        <cmd_max>30</cmd_max>
+        <cmd_min>-30</cmd_min>
+      </plugin>
+
+      <plugin
+        filename="gz-sim-joint-position-controller-system"
+        name="gz::sim::systems::JointPositionController">
+        <joint_name>joint4</joint_name>
+        <topic>/model/lite6/joint/joint4/0/cmd_pos</topic>
+        <p_gain>50</p_gain>
+        <i_gain>0.1</i_gain>
+        <d_gain>5</d_gain>
+        <i_max>1</i_max>
+        <i_min>-1</i_min>
+        <cmd_max>20</cmd_max>
+        <cmd_min>-20</cmd_min>
+      </plugin>
+
+      <plugin
+        filename="gz-sim-joint-position-controller-system"
+        name="gz::sim::systems::JointPositionController">
+        <joint_name>joint5</joint_name>
+        <topic>/model/lite6/joint/joint5/0/cmd_pos</topic>
+        <p_gain>40</p_gain>
+        <i_gain>0.1</i_gain>
+        <d_gain>4</d_gain>
+        <i_max>1</i_max>
+        <i_min>-1</i_min>
+        <cmd_max>15</cmd_max>
+        <cmd_min>-15</cmd_min>
+      </plugin>
+
+      <plugin
+        filename="gz-sim-joint-position-controller-system"
+        name="gz::sim::systems::JointPositionController">
+        <joint_name>joint6</joint_name>
+        <topic>/model/lite6/joint/joint6/0/cmd_pos</topic>
+        <p_gain>30</p_gain>
+        <i_gain>0.1</i_gain>
+        <d_gain>3</d_gain>
+        <i_max>1</i_max>
+        <i_min>-1</i_min>
+        <cmd_max>10</cmd_max>
+        <cmd_min>-10</cmd_min>
+      </plugin>
+
+      <!-- Joint State Publisher -->
+      <plugin
+        filename="gz-sim-joint-state-publisher-system"
+        name="gz::sim::systems::JointStatePublisher">
+        <joint_name>joint1</joint_name>
+        <joint_name>joint2</joint_name>
+        <joint_name>joint3</joint_name>
+        <joint_name>joint4</joint_name>
+        <joint_name>joint5</joint_name>
+        <joint_name>joint6</joint_name>
+      </plugin>
+    </model>
+
+    <!-- Table (work surface) -->
+    <model name="table">
+      <static>true</static>
+      <pose>0.4 0 0.35 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.6 0.8 0.02</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.6 0.8 0.02</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.6 0.4 0.2 1</ambient>
+            <diffuse>0.7 0.5 0.3 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>

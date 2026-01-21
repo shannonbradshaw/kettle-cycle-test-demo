@@ -1,0 +1,10 @@
+# Viam SDK
+viam-sdk>=0.20.0
+
+# Gazebo transport bindings (Harmonic)
+# Note: gz-transport14 and gz-msgs11 are installed via system packages
+# These Python bindings require Gazebo Harmonic to be installed
+
+# Development dependencies
+pytest>=7.0
+pytest-asyncio>=0.21.0

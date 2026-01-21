@@ -1,0 +1,17 @@
+{
+  "module_id": "viamdemo:kettle-sim",
+  "visibility": "public",
+  "url": "https://github.com/viam-demo/kettle-cycle-test-demo",
+  "description": "Gazebo simulation module for kettle cycle test demo. Provides simulated arm and force sensor components.",
+  "models": [
+    {
+      "api": "rdk:component:arm",
+      "model": "viamdemo:kettle-sim:lite6"
+    },
+    {
+      "api": "rdk:component:sensor",
+      "model": "viamdemo:kettle-sim:force-sensor"
+    }
+  ],
+  "entrypoint": "python3 -m kettle_sim"
+}
