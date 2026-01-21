@@ -1,0 +1,13 @@
+{
+  "module_id": "viam-labs:gazebo-camera",
+  "visibility": "private",
+  "url": "",
+  "description": "Viam camera module that bridges Gazebo simulation cameras to the Viam camera API",
+  "models": [
+    {
+      "api": "rdk:component:camera",
+      "model": "viam-labs:camera:gazebo"
+    }
+  ],
+  "entrypoint": "main.py"
+}

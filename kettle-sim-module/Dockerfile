@@ -1,65 +1,59 @@
-# Kettle Simulation Module - Docker Image
-#
-# This Dockerfile creates a container with:
-# - MuJoCo physics simulation
-# - Viam server with kettle-sim module
-# - Web-based 3D visualizer
-#
-# Build:
-#   docker build -t kettle-sim .
-#
-# Run:
-#   docker run -p 8080:8080 -p 3000:3000 kettle-sim
+# Gazebo Harmonic simulation for Kettle Cycle Test
+# Bridges Gazebo to Viam via custom modules
 
-FROM python:3.11-slim
+FROM ubuntu:22.04
 
-# Install system dependencies for MuJoCo and viam-server
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Gazebo Harmonic repository
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libxrender1 \
-    libxext6 \
     curl \
-    nodejs \
-    npm \
+    gnupg \
+    lsb-release \
+    && curl https://packages.osrfoundation.org/gazebo.gpg --output /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null
+
+# Install Gazebo Harmonic and dependencies
+RUN apt-get update && apt-get install -y \
+    gz-harmonic \
+    python3-pip \
+    python3-gz-transport13 \
+    python3-gz-msgs10 \
+    xvfb \
+    mesa-utils \
+    libgl1-mesa-dri \
+    libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Viam SDK
+RUN pip3 install viam-sdk>=0.20.0
+
 # Install viam-server
-RUN curl -fsSL https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-stable-x86_64 \
-    -o /usr/local/bin/viam-server \
+RUN curl -o /usr/local/bin/viam-server \
+    https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-stable-x86_64.AppImage \
     && chmod +x /usr/local/bin/viam-server
 
-# Set up working directory
+# Create app directory
 WORKDIR /app
 
-# Copy Python module
-COPY pyproject.toml requirements.txt ./
-COPY src/ ./src/
-COPY models/ ./models/
+# Copy models
+COPY models/ /app/models/
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir -e .
+# Copy worlds
+COPY worlds/ /app/worlds/
 
-# Copy and build web UI
-COPY web/ ./web/
-WORKDIR /app/web
-RUN npm install && npm run build
-WORKDIR /app
+# Copy Viam bridge modules
+COPY modules/ /app/modules/
 
-# Copy configuration and startup script
-COPY docker/machine-config.json /etc/viam/machine-config.json
-COPY docker/start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+# Copy config and entrypoint
+COPY viam-config.json /app/
+COPY entrypoint.sh /app/
+RUN chmod +x /app/entrypoint.sh
 
-# Expose ports
-# 8080: viam-server gRPC/WebRTC
-# 3000: Web UI
-EXPOSE 8080 3000
+# Set Gazebo resource path to find custom models
+ENV GZ_SIM_RESOURCE_PATH=/app/models
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/ || exit 1
+# Expose Viam server port
+EXPOSE 8080
 
-# Start services
-CMD ["/app/start.sh"]
+ENTRYPOINT ["/app/entrypoint.sh"]

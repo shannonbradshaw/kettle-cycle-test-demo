@@ -1,0 +1,74 @@
+{
+  "cloud": {
+    "id": "",
+    "secret": "",
+    "app_address": "https://app.viam.com:443"
+  },
+  "modules": [
+    {
+      "name": "gazebo-camera",
+      "executable_path": "/usr/bin/python3",
+      "args": ["/app/modules/gazebo-camera/main.py"],
+      "type": "local"
+    },
+    {
+      "name": "gazebo-arm",
+      "executable_path": "/usr/bin/python3",
+      "args": ["/app/modules/gazebo-arm/main.py"],
+      "type": "local"
+    },
+    {
+      "name": "gazebo-sensor",
+      "executable_path": "/usr/bin/python3",
+      "args": ["/app/modules/gazebo-sensor/main.py"],
+      "type": "local"
+    }
+  ],
+  "components": [
+    {
+      "name": "overhead-camera",
+      "namespace": "rdk",
+      "type": "camera",
+      "model": "viam-labs:camera:gazebo",
+      "attributes": {
+        "topic": "/overhead_camera/image",
+        "width": 1280,
+        "height": 720
+      }
+    },
+    {
+      "name": "arm",
+      "namespace": "rdk",
+      "type": "arm",
+      "model": "viam-labs:arm:gazebo",
+      "attributes": {
+        "model_name": "xarm6",
+        "num_joints": 6
+      }
+    },
+    {
+      "name": "force-plate-sensor",
+      "namespace": "rdk",
+      "type": "sensor",
+      "model": "viam-labs:sensor:gazebo-contact",
+      "attributes": {
+        "topic": "/force_plate/contact",
+        "use_mock": false
+      }
+    },
+    {
+      "name": "kettle-contact-sensor",
+      "namespace": "rdk",
+      "type": "sensor",
+      "model": "viam-labs:sensor:gazebo-contact",
+      "attributes": {
+        "topic": "/kettle/contact",
+        "use_mock": false
+      }
+    }
+  ],
+  "services": [],
+  "network": {
+    "bind_address": "0.0.0.0:8080"
+  }
+}

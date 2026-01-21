@@ -1,0 +1,8 @@
+# Viam SDK
+viam-sdk>=0.20.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Note: gz-transport13 and gz-msgs10 are system packages, not pip packages.
+# Install with: apt install python3-gz-transport13 python3-gz-msgs10

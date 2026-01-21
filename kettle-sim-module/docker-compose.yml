@@ -1,35 +1,31 @@
-# Kettle Cycle Test Simulation - Docker Compose
-#
-# Usage:
-#   docker-compose up --build
-#
-# For SSH tunnel deployment (security via SSH):
-#   docker-compose up --build
-#   # From client machine:
-#   ssh -L 3000:localhost:3000 -L 8080:localhost:8080 user@server
-#   # Then open http://localhost:3000
+version: '3.8'
 
 services:
-  simulation:
-    build: .
+  kettle-sim:
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: kettle-sim
+    # Bind to localhost only - access via SSH tunnel for security
     ports:
-      # Bind to localhost only for SSH tunnel deployment
-      # Change to "8080:8080" for direct access (less secure)
-      - "127.0.0.1:8080:8080"  # viam-server gRPC/WebRTC
-      - "127.0.0.1:3000:3000"  # Web UI
+      - "127.0.0.1:8080:8080"
     environment:
-      # MuJoCo settings
-      - MUJOCO_GL=osmesa  # Use software rendering in container
-    # volumes:
-      # Optional: Mount custom model files
-      # - ./models:/app/models:ro
-      # Optional: Mount custom config
-      # - ./docker/machine-config.json:/etc/viam/machine-config.json:ro
+      - DISPLAY=:99
+      - GZ_SIM_RESOURCE_PATH=/app/models
+      # Viam cloud credentials (set via .env or command line)
+      - VIAM_API_KEY=${VIAM_API_KEY:-}
+      - VIAM_API_KEY_ID=${VIAM_API_KEY_ID:-}
+    # For GPU acceleration (optional, works without)
+    # devices:
+    #   - /dev/dri:/dev/dri
+    volumes:
+      # Mount config for easy updates without rebuild
+      - ./viam-config.json:/app/viam-config.json:ro
     restart: unless-stopped
+    # Health check
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s

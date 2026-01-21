@@ -1,0 +1,3 @@
+viam-sdk>=0.20.0
+# Note: gz-transport and gz-msgs are system packages, not pip
+# Install with: apt install python3-gz-transport13 python3-gz-msgs10

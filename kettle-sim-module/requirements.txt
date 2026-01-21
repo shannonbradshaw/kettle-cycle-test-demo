@@ -1,9 +1,0 @@
-# Viam SDK
-viam-sdk>=0.20.0
-
-# MuJoCo physics engine
-mujoco>=3.0.0
-
-# Development dependencies
-pytest>=7.0
-pytest-asyncio>=0.21.0

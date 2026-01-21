@@ -1,0 +1,13 @@
+{
+  "module_id": "viam-labs:gazebo-sensor",
+  "visibility": "private",
+  "url": "",
+  "description": "Viam sensor module for Gazebo contact/force sensing - bridges Gazebo contact sensors to Viam sensor API",
+  "models": [
+    {
+      "api": "rdk:component:sensor",
+      "model": "viam-labs:sensor:gazebo-contact"
+    }
+  ],
+  "entrypoint": "main.py"
+}

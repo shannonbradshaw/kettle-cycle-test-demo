@@ -1,0 +1,13 @@
+{
+  "module_id": "viam-labs:gazebo-arm",
+  "visibility": "private",
+  "url": "",
+  "description": "Viam arm module for Gazebo simulation - bridges Gazebo joint control to Viam arm API",
+  "models": [
+    {
+      "api": "rdk:component:arm",
+      "model": "viam-labs:arm:gazebo"
+    }
+  ],
+  "entrypoint": "main.py"
+}
